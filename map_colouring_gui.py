@@ -2,9 +2,10 @@ import tkinter as tk
 from tkinter import messagebox
 
 # -------------------------------------------------
-# MAP COLORING GAME – REVIEW 1 (IMPROVED GUI)
-# Player 1: Human
+# MAP COLORING GAME – REVIEW 1 (FINAL VERSION)
+# Player 1: Human (own logic)
 # Player 2: Computer (Greedy Algorithm)
+# Penalty for invalid human moves
 # -------------------------------------------------
 
 # -------- GRAPH (4x4 GRID) --------
@@ -41,7 +42,7 @@ human_score = 0
 cpu_score = 0
 game_over = False
 
-# -------- VALID MOVE --------
+# -------- VALID MOVE CHECK --------
 def is_valid(region, color):
     return all(colors[n] != color for n in graph[region])
 
@@ -58,6 +59,7 @@ def cpu_move():
                     cpu_score += 1
                     break
             break
+    update_status()
     check_game_over()
 
 # -------- HUMAN MOVE --------
@@ -72,19 +74,31 @@ def human_move(region):
         return
 
     if colors[region] is not None:
-        status_label.config(text="Region already colored!", fg="red")
+        status_label.config(text="Region already colored! (-1)", fg="red")
+        human_score -= 1
+        update_status()
         return
 
     if not is_valid(region, selected_color):
-        status_label.config(text="Invalid move: same color neighbor!", fg="red")
+        status_label.config(text="Invalid move! Penalty applied (-1)", fg="red")
+        human_score -= 1
+        update_status()
         return
 
+    # Valid human move
     colors[region] = selected_color
     buttons[region].config(bg=selected_color)
     human_score += 1
     status_label.config(text="Computer's turn...", fg="blue")
+    update_status()
 
     root.after(400, cpu_move)
+
+# -------- STATUS UPDATE --------
+def update_status():
+    score_label.config(
+        text=f"Human Score: {human_score}    Computer Score: {cpu_score}"
+    )
 
 # -------- CHECK GAME OVER --------
 def check_game_over():
@@ -94,7 +108,7 @@ def check_game_over():
         winner = "Human" if human_score >= cpu_score else "Computer"
         messagebox.showinfo(
             "Game Over",
-            f"All regions colored!\n\n"
+            f"All regions are colored!\n\n"
             f"Human Score: {human_score}\n"
             f"Computer Score: {cpu_score}\n\n"
             f"Winner: {winner}"
@@ -115,13 +129,14 @@ def reset_game():
     cpu_score = 0
     game_over = False
     status_label.config(text="Select a color and click a region", fg="black")
+    score_label.config(text="Human Score: 0    Computer Score: 0")
     for btn in buttons.values():
         btn.config(bg="white")
 
 # -------- GUI SETUP --------
 root = tk.Tk()
 root.title("Map Coloring Game – Review 1")
-root.geometry("420x520")
+root.geometry("440x560")
 root.resizable(False, False)
 
 tk.Label(
@@ -141,11 +156,18 @@ status_label = tk.Label(
     text="Select a color and click a region",
     font=("Arial", 10)
 )
-status_label.pack(pady=8)
+status_label.pack(pady=6)
+
+score_label = tk.Label(
+    root,
+    text="Human Score: 0    Computer Score: 0",
+    font=("Arial", 11, "bold")
+)
+score_label.pack(pady=4)
 
 # -------- GRID --------
 grid_frame = tk.Frame(root)
-grid_frame.pack()
+grid_frame.pack(pady=5)
 
 buttons = {}
 reset_game()
@@ -185,7 +207,7 @@ tk.Button(
     font=("Arial", 11, "bold"),
     bg="#444",
     fg="white",
-    width=20,
+    width=22,
     command=reset_game
 ).pack(pady=12)
 
