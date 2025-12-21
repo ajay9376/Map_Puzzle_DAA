@@ -6,6 +6,7 @@ from tkinter import messagebox
 # Player 1: Human (own logic)
 # Player 2: Computer (Greedy Algorithm)
 # Penalty for invalid human moves
+# two player game for review 1
 # -------------------------------------------------
 
 # -------- GRAPH (4x4 GRID) --------
