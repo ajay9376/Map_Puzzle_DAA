@@ -2,14 +2,12 @@ import tkinter as tk
 from tkinter import messagebox
 
 # -------------------------------------------------
-# MAP COLORING GAME – REVIEW 1 (FINAL VERSION)
+# MAP COLORING GAME – FINAL VERSION (REVIEW 1)
 # Player 1: Human (own logic)
-# Player 2: Computer (Greedy Algorithm)
-# Penalty for invalid human moves
-# two player game for review 1
+# Player 2: Computer (Greedy + Selection Sort)
 # -------------------------------------------------
 
-# -------- GRAPH (4x4 GRID) --------
+# -------- GRAPH REPRESENTATION (4x4 GRID) --------
 graph = {
     0: [1, 4],
     1: [0, 2, 5],
@@ -29,6 +27,7 @@ graph = {
     15: [11, 14]
 }
 
+# -------- COLORS --------
 color_map = {
     "RED": "red",
     "GREEN": "green",
@@ -47,19 +46,42 @@ game_over = False
 def is_valid(region, color):
     return all(colors[n] != color for n in graph[region])
 
-# -------- CPU GREEDY MOVE --------
+# -------- SELECTION SORT (BY DEGREE – DESCENDING) --------
+def sort_regions_by_degree(regions):
+    regions = regions[:]  # copy
+    n = len(regions)
+
+    for i in range(n):
+        max_idx = i
+        for j in range(i + 1, n):
+            if len(graph[regions[j]]) > len(graph[regions[max_idx]]):
+                max_idx = j
+        regions[i], regions[max_idx] = regions[max_idx], regions[i]
+
+    return regions
+
+# -------- CPU MOVE (GREEDY + SORTING) --------
 def cpu_move():
     global cpu_score
-    for r in range(16):
-        if colors[r] is None:
-            used = {colors[n] for n in graph[r] if colors[n]}
-            for c in color_map.values():
-                if c not in used:
-                    colors[r] = c
-                    buttons[r].config(bg=c)
-                    cpu_score += 1
-                    break
+
+    uncolored = [r for r in range(16) if colors[r] is None]
+    if not uncolored:
+        return
+
+    # Sort regions using Selection Sort
+    sorted_regions = sort_regions_by_degree(uncolored)
+
+    # Pick highest-degree region
+    r = sorted_regions[0]
+
+    used = {colors[n] for n in graph[r] if colors[n]}
+    for c in color_map.values():
+        if c not in used:
+            colors[r] = c
+            buttons[r].config(bg=c)
+            cpu_score += 1
             break
+
     update_status()
     check_game_over()
 
@@ -81,12 +103,11 @@ def human_move(region):
         return
 
     if not is_valid(region, selected_color):
-        status_label.config(text="Invalid move! Penalty applied (-1)", fg="red")
+        status_label.config(text="Invalid move! Penalty (-1)", fg="red")
         human_score -= 1
         update_status()
         return
 
-    # Valid human move
     colors[region] = selected_color
     buttons[region].config(bg=selected_color)
     human_score += 1
@@ -136,7 +157,7 @@ def reset_game():
 
 # -------- GUI SETUP --------
 root = tk.Tk()
-root.title("Map Coloring Game – Review 1")
+root.title("Map Coloring Game – Greedy + Selection Sort")
 root.geometry("440x560")
 root.resizable(False, False)
 
@@ -148,7 +169,7 @@ tk.Label(
 
 tk.Label(
     root,
-    text="Human vs Computer (Greedy Algorithm)",
+    text="Human vs Computer (Greedy + Selection Sort)",
     font=("Arial", 11)
 ).pack()
 
