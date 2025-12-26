@@ -1,11 +1,11 @@
 import sys
 import random
-from PyQt6.QtWidgets import (
+from PyQt6.QtWidgets import ( 
     QApplication, QWidget, QPushButton, QLabel,
     QGridLayout, QVBoxLayout, QHBoxLayout,
     QComboBox
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer 
 
 COLORS = ["red", "green", "blue", "yellow"]
 
@@ -28,12 +28,12 @@ class MapColoringGame(QWidget):
         self.init_ui()
         self.new_game()
 
-    # ---------------- UI ----------------
+    # UI 
     def init_ui(self):
         self.setWindowTitle("Map Coloring Game – DAA Project")
         self.showMaximized()
 
-        # Sky-blue background with golden stars (Qt-safe)
+        
         self.setStyleSheet("""
             QWidget {
                 background-color: #87CEEB;
@@ -47,24 +47,16 @@ class MapColoringGame(QWidget):
         self.main.setContentsMargins(20, 15, 20, 15)
         self.main.setSpacing(14)
 
-        # -------- HEADER --------
+        #  HEADER 
         header = QWidget()
         header.setStyleSheet("background:#1E3A5F;border-radius:18px;padding:22px;")
         hl = QVBoxLayout(header)
 
-        title = QLabel("🗺️ Map Coloring Game")
+        title = QLabel("Map Coloring Game")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("font-size:36px;font-weight:800;color:white;")
 
-        subtitle = QLabel("Human vs Computer (Greedy + Selection Sort)")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("color:#C7D6E5;font-size:14px;")
-
-        hl.addWidget(title)
-        hl.addWidget(subtitle)
-        self.main.addWidget(header)
-
-        # -------- CONTROLS --------
+        # CONTROLS 
         controls = QHBoxLayout()
 
         self.type_dropdown = QComboBox()
@@ -93,18 +85,18 @@ class MapColoringGame(QWidget):
 
         self.main.addLayout(controls)
 
-        # -------- SCORE --------
+        #  SCORE 
         self.score_label = QLabel("Human: 0    Computer: 0")
         self.score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.score_label.setStyleSheet("font-size:15px;font-weight:600;color:#1E3A5F;")
         self.main.addWidget(self.score_label)
 
-        # -------- STATUS --------
+        #STATUS
         self.status = QLabel("Select a color and click a region")
         self.status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.main.addWidget(self.status)
 
-        # -------- GRID --------
+        # GRID
         self.grid_container = QWidget()
         self.grid_container.setStyleSheet("background:white;border-radius:10px;")
         self.grid_layout = QGridLayout(self.grid_container)
@@ -115,7 +107,7 @@ class MapColoringGame(QWidget):
         self.main.addWidget(self.grid_container, alignment=Qt.AlignmentFlag.AlignCenter)
         self.main.addStretch()
 
-        # -------- COLOR BUTTONS --------
+        # COLOR BUTTONS
         color_bar = QHBoxLayout()
         for c in COLORS:
             btn = QPushButton(c.upper())
@@ -127,7 +119,7 @@ class MapColoringGame(QWidget):
             color_bar.addWidget(btn)
         self.main.addLayout(color_bar)
 
-    # ---------------- GRAPH ----------------
+    # GRAPH 
     def build_graph(self):
         self.graph.clear()
         for r in range(self.size):
@@ -138,7 +130,7 @@ class MapColoringGame(QWidget):
                     if 0 <= nr < self.size and 0 <= nc < self.size:
                         self.graph[(r, c)].append((nr, nc))
 
-    # ---------------- GAME SETUP ----------------
+    #GAME SETUP 
     def change_type(self):
         self.size = self.type_dropdown.currentData()
         self.new_game()
@@ -202,7 +194,7 @@ class MapColoringGame(QWidget):
                     "background:#F5F5F5;border:1px solid #B0BEC5;"
                 )
 
-    # ---------------- HELPERS ----------------
+    #  HELPERS 
     def update_score(self):
         self.score_label.setText(
             f"Human: {self.human_score}    Computer: {self.cpu_score}"
@@ -221,7 +213,7 @@ class MapColoringGame(QWidget):
             f"background:{self.colors[cell]};border:1px solid #455A64;"
         )
 
-    # ---------------- SORTING ----------------
+    # SORTING
     def selection_sort_by_degree(self, nodes):
         nodes = nodes[:]
         for i in range(len(nodes)):
@@ -232,12 +224,12 @@ class MapColoringGame(QWidget):
             nodes[i], nodes[max_i] = nodes[max_i], nodes[i]
         return nodes
 
-    # ---------------- GAME OVER CHECK ----------------
+    #  GAME OVER CHECK 
     def check_game_over(self):
         if all(self.colors[cell] is not None for cell in self.colors):
             self.show_winner()
 
-    # ---------------- MOVES ----------------
+    # MOVES
     def human_move(self, cell):
         if self.solving or not self.selected_color:
             return
@@ -266,7 +258,6 @@ class MapColoringGame(QWidget):
             return
 
         cell = self.selection_sort_by_degree(uncolored)[0]
-        
         for col in COLORS:
             if self.valid(cell, col):
                 self.colors[cell] = col
@@ -278,7 +269,7 @@ class MapColoringGame(QWidget):
         self.check_game_over()
         self.status.setText("Your turn")
 
-    # ---------------- SOLVE ----------------
+    #  SOLVE 
     def solve_all(self):
         self.solving = True
         self.status.setText("Solving automatically...")
@@ -292,23 +283,23 @@ class MapColoringGame(QWidget):
 
         cell = self.selection_sort_by_degree(uncolored)[0]
         for col in COLORS:
-            if self.valid(cell, col) :
+            if self.valid(cell, col):
                 self.colors[cell] = col
                 self.paint(cell)
                 break
 
         QTimer.singleShot(150, self.solve_step)
 
-    # ---------------- WINNER POPUP ----------------
+    # WINNER POPUP 
     def show_winner(self):
         if self.human_score > self.cpu_score:
-            title = "🎉 HUMAN WINS!"
+            title = "HUMAN WINS!"
             color = "#2ECC71"
         elif self.cpu_score > self.human_score:
-            title = "🤖 COMPUTER WINS!"
+            title = "COMPUTER WINS!"
             color = "#E74C3C"
         else:
-            title = "🤝 DRAW!"
+            title = "DRAW!"
             color = "#3498DB"
 
         popup = QWidget(self)
@@ -350,7 +341,7 @@ class MapColoringGame(QWidget):
 
         popup.show()
 
-# ---------------- RUN ----------------
+# RUN 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     game = MapColoringGame()
