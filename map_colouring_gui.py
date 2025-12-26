@@ -290,7 +290,6 @@ class MapColoringGame(QWidget):
 
         QTimer.singleShot(150, self.solve_step)
 
-    # WINNER POPUP 
     def show_winner(self):
         if self.human_score > self.cpu_score:
             title = "HUMAN WINS!"
@@ -332,7 +331,7 @@ class MapColoringGame(QWidget):
         layout.addStretch()
         layout.addWidget(btn)
 
-        # CENTER POPUP
+    
         screen = QApplication.primaryScreen().availableGeometry()
         popup.move(
             (screen.width() - popup.width()) // 2,
@@ -341,7 +340,7 @@ class MapColoringGame(QWidget):
 
         popup.show()
 
-# RUN 
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     game = MapColoringGame()
