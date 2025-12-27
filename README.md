@@ -27,7 +27,7 @@ This project implements a **two-player map coloring game** based on the
 - Python
 - Tkinter (GUI)
 
-## How to Run
+## How to See Video
 ```bash
 
 ## VIDEO OF OUTPUT
