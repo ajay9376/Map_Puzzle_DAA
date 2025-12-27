@@ -29,4 +29,7 @@ This project implements a **two-player map coloring game** based on the
 
 ## How to Run
 ```bash
+
+## VIDEO OF OUTPUT
+- The video is uploaded in thie repository but in github we can upload video directly so to see the video we have to download . To download it click view raw
 python map_colouring_gui.py
