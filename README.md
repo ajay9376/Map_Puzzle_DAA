@@ -31,5 +31,5 @@ This project implements a **two-player map coloring game** based on the
 ```bash
 
 ## VIDEO OF OUTPUT
-- The video is uploaded in this repository but in github we can't upload video directly. So, to see the video we have to download it. To download it click view raw
+- The video is uploaded in this repository but in github we can't upload video directly. So, to see the video we have to download it. To download it first go to the video file and click view raw
 
