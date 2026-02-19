@@ -188,7 +188,7 @@ class MapColoringGame(QWidget):
 
         main.addLayout(center_container, stretch=1)
 
-    # ================= GRAPH =================
+    # GRAPH 
     def build_graph(self):
         self.graph.clear()
         for r in range(self.size):
@@ -203,7 +203,7 @@ class MapColoringGame(QWidget):
         self.size = self.type_dropdown.currentData()
         self.new_game()
 
-    # ================= NEW GAME =================
+    # NEW GAME 
     def new_game(self):
         self.cell_colors.clear()
         self.buttons.clear()
@@ -236,7 +236,7 @@ class MapColoringGame(QWidget):
                 self.grid_layout.addWidget(btn, r, c)
                 self.buttons[cell] = btn
 
-        # ===== DEFAULT PREFILL =====
+        # DEFAULT PREFILL
         cells = list(self.cell_colors.keys())
         random.shuffle(cells)
         filled = 0
@@ -267,7 +267,7 @@ class MapColoringGame(QWidget):
 
         self.status_label.setText("Game Restarted")
 
-    # ================= HELPERS =================
+    # HELPERS 
     def update_score(self):
         self.score_label.setText(f"Human: {self.human_score} | Computer: {self.cpu_score}")
 
@@ -287,12 +287,12 @@ class MapColoringGame(QWidget):
             f"background:{self.cell_colors[cell]}; border:2px solid #334155;"
         )
 
-    # ================= GAME END CHECK =================
+    # GAME END CHECK 
     def check_complete(self):
         if all(self.cell_colors[c] is not None for c in self.cell_colors):
             self.show_winner()
 
-    # ================= HUMAN MOVE =================
+    # HUMAN MOVE 
     def human_move(self, cell):
         if not self.selected_color:
             return
@@ -312,7 +312,7 @@ class MapColoringGame(QWidget):
         self.check_complete()
         QTimer.singleShot(400, self.cpu_move)
 
-    # ================= CPU MOVE (TRUE D&C) =================
+    # CPU MOVE (TRUE D&C) 
     def cpu_move(self):
         result = self.divide_and_conquer_cpu(0, 0, self.size, self.size)
         if result:
@@ -375,7 +375,7 @@ class MapColoringGame(QWidget):
                 return color
         return None
 
-    # ================= SOLVER =================
+    # SOLVER 
     def solve_board(self):
         self.status_label.setText("Solving using backtracking...")
         success = self.solve_recursive()
@@ -401,7 +401,7 @@ class MapColoringGame(QWidget):
                 self.cell_colors[cell] = None
         return False
 
-    # ================= POPUPS =================
+    # POPUPS 
     def show_fail_popup(self):
         popup = QDialog(self)
         popup.setWindowTitle("Game Over")
