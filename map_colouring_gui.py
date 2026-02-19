@@ -375,7 +375,7 @@ class MapColoringGame(QWidget):
                 return color
         return None
 
-    # SOLVER 
+    #SOLVER 
     def solve_board(self):
         self.status_label.setText("Solving using backtracking...")
         success = self.solve_recursive()
@@ -401,7 +401,7 @@ class MapColoringGame(QWidget):
                 self.cell_colors[cell] = None
         return False
 
-    # POPUPS 
+    # POPUPS
     def show_fail_popup(self):
         popup = QDialog(self)
         popup.setWindowTitle("Game Over")
