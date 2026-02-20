@@ -313,6 +313,20 @@ class MapColoringGame(QWidget):
         QTimer.singleShot(400, self.cpu_move)
 
     # ================= CPU MOVE (TRUE D&C) =================
+    def cpu_move(self):
+        result = self.divide_and_conquer_cpu(0, 0, self.size, self.size)
+        if result:
+            best_cell, _ = result
+            color = self.find_valid_color(best_cell)
+            if color:
+                self.cell_colors[best_cell] = color
+                self.paint_cell(best_cell)
+                self.cpu_score += 1
+                self.update_score()
+                self.check_complete()
+        else:
+            self.show_fail_popup()
+
     def divide_and_conquer_cpu(self, sr, sc, er, ec):
         region_size = (er - sr) * (ec - sc)
         # Base Case
