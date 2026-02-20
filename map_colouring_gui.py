@@ -3,192 +3,144 @@ import random
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel,
     QGridLayout, QVBoxLayout, QHBoxLayout,
-    QComboBox, QDialog, QFrame
+    QComboBox, QDialog
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont
 
-COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#eab308"]
-COLOR_NAMES = ["Red", "Green", "Blue", "Yellow"]
+COLORS = ["red", "green", "blue", "yellow"]
+
 
 class MapColoringGame(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Map Coloring Game – Advanced Divide & Conquer")
-        self.resize(1100, 900)
 
         self.size = 5
         self.graph = {}
-        self.cell_colors = {}
+        self.colors = {}
         self.initial_colors = {}
         self.buttons = {}
+
+        self.selected_color = None
         self.human_score = 0
         self.cpu_score = 0
-        self.selected_color = None
 
         self.init_ui()
-        self.apply_theme()
         self.new_game()
 
-    def apply_theme(self):
+    # ---------------- UI ----------------
+    def init_ui(self):
+        self.setWindowTitle("Map Coloring Game – DAA Project")
+        self.showMaximized()
+
         self.setStyleSheet("""
             QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                            stop:0 #0f172a, stop:1 #1e293b);
-                color: #e2e8f0;
-                font-family: "Segoe UI", Arial, sans-serif;
-            }
-            QFrame#card {
-                background: rgba(30, 41, 59, 180);
-                border: 1px solid rgba(148, 163, 184, 100);
-                border-radius: 16px;
-            }
-            QPushButton {
-                background: #6366f1;
-                color: white;
-                border: none;
-                border-radius: 10px;
-                padding: 10px 20px;
-                font-weight: 600;
-                font-size: 15px;
-            }
-            QPushButton:hover {
-                background: #4f46e5;
-            }
-            QPushButton#color-btn {
-                min-width: 110px;
-                min-height: 54px;
-                border-radius: 12px;
-                font-size: 15px;
-                font-weight: bold;
-            }
-            QPushButton#cell {
-                background: #1e293b;
-                border: 2px solid #475569;
-                border-radius: 10px;
-            }
-            QPushButton#cell:hover {
-                border: 3px solid #818cf8;
-                background: #334155;
-            }
-            QLabel {
-                color: #e2e8f0;
-            }
-            QComboBox {
-                background: #1e293b;
-                color: #e2e8f0;
-                border: 1px solid #475569;
-                border-radius: 8px;
-                padding: 8px;
-                font-size: 15px;
+                background-color: #7fb3c9;
             }
         """)
 
-    def init_ui(self):
-        main = QVBoxLayout(self)
-        main.setContentsMargins(30, 20, 30, 30)
-        main.setSpacing(20)
+        self.main = QVBoxLayout(self)
+        self.main.setContentsMargins(20, 15, 20, 15)
+        self.main.setSpacing(14)
 
-        # Title + status
-        header = QHBoxLayout()
+        # HEADER
+        header = QWidget()
+        header.setStyleSheet("background:#2C3E50;border-radius:18px;padding:25px;")
+        hl = QVBoxLayout(header)
+
         title = QLabel("Map Coloring Game")
-        title.setStyleSheet("font-size:34px; font-weight:800;")
-        header.addWidget(title)
-        header.addStretch()
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("font-size:36px;font-weight:800;color:white;")
+        hl.addWidget(title)
 
-        self.status_label = QLabel("Select a color and click a cell")
-        self.status_label.setStyleSheet("font-size:17px; color:#94a3b8;")
-        header.addWidget(self.status_label)
+        self.main.addWidget(header)
 
-        main.addLayout(header)
-
-        # Controls
+        # CONTROLS
         controls = QHBoxLayout()
-        controls.setSpacing(15)
 
-        lbl = QLabel("Difficulty:")
-        lbl.setStyleSheet("font-size:16px; font-weight:600;")
         self.type_dropdown = QComboBox()
-        self.type_dropdown.addItem("Easy (5×5)", 5)
-        self.type_dropdown.addItem("Normal (6×6)", 6)
-        self.type_dropdown.addItem("Hard (7×7)", 7)
+        self.type_dropdown.addItem("Easy (5x5)", 5)
+        self.type_dropdown.addItem("Normal (6x6)", 6)
+        self.type_dropdown.addItem("Hard (7x7)", 7)
+        self.type_dropdown.setFixedHeight(40)
+        self.type_dropdown.setStyleSheet("""
+            QComboBox {
+                background:#34495E;
+                color:white;
+                border-radius:10px;
+                padding:6px;
+            }
+        """)
         self.type_dropdown.currentIndexChanged.connect(self.change_type)
-
-        controls.addWidget(lbl)
         controls.addWidget(self.type_dropdown)
-        controls.addStretch()
 
         for text, fn in [
             ("New Game", self.new_game),
             ("Restart", self.restart_game),
-            ("Solve (Backtracking)", self.solve_board)
+            ("Solve", self.solve_all)
         ]:
             btn = QPushButton(text)
-            btn.setFixedHeight(46)
+            btn.setFixedHeight(40)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background:#34495E;
+                    color:white;
+                    border-radius:10px;
+                    padding:10px 22px;
+                }
+                QPushButton:hover {
+                    background:#2C3E50;
+                }
+            """)
             btn.clicked.connect(fn)
             controls.addWidget(btn)
 
-        main.addLayout(controls)
+        self.main.addLayout(controls)
 
-        # Score
-        score_frame = QFrame()
-        score_frame.setObjectName("card")
-        score_lay = QHBoxLayout(score_frame)
-        score_lay.setContentsMargins(25, 15, 25, 15)
-
-        self.score_label = QLabel("Human: 0 | Computer: 0")
-        self.score_label.setStyleSheet("font-size:20px; font-weight:bold;")
+        # SCORE
+        self.score_label = QLabel("Human: 0    Computer: 0")
         self.score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        score_lay.addWidget(self.score_label)
+        self.score_label.setStyleSheet("font-size:16px;font-weight:bold;color:#2C3E50;")
+        self.main.addWidget(self.score_label)
 
-        main.addWidget(score_frame)
+        # STATUS
+        self.status = QLabel("Select a color and click a region")
+        self.status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status.setStyleSheet("color:white;font-weight:bold;")
+        self.main.addWidget(self.status)
 
-        # Center container → grid + color bar
-        center_container = QVBoxLayout()
-        center_container.addStretch(1)
-
-        grid_section = QVBoxLayout()
-        grid_section.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.grid_frame = QFrame()
-        self.grid_frame.setObjectName("card")
-        self.grid_layout = QGridLayout(self.grid_frame)
+        # GRID
+        self.grid_container = QWidget()
+        self.grid_container.setStyleSheet("""
+            background:white;
+            border-radius:15px;
+            padding:10px;
+        """)
+        self.grid_layout = QGridLayout(self.grid_container)
         self.grid_layout.setSpacing(6)
-        self.grid_layout.setContentsMargins(12, 12, 12, 12)
 
-        grid_section.addWidget(self.grid_frame, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.main.addStretch()
+        self.main.addWidget(self.grid_container, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.main.addStretch()
 
-        # Color buttons with text
+        # COLOR BUTTONS
         color_bar = QHBoxLayout()
-        color_bar.setSpacing(14)
-        color_bar.addStretch()
-
-        for color, name in zip(COLORS, COLOR_NAMES):
-            btn = QPushButton(name)
-            btn.setObjectName("color-btn")
+        for c in COLORS:
+            btn = QPushButton(c.upper())
+            btn.setFixedSize(150, 55)
             btn.setStyleSheet(f"""
                 QPushButton {{
-                    background: {color};
-                    color: {'black' if color == COLORS[3] else 'white'};
-                    font-weight: bold;
-                    font-size: 14px;
-                }}
-                QPushButton:hover {{
-                    border: 3px solid white;
+                    background:{c};
+                    color:white;
+                    border-radius:18px;
+                    font-weight:bold;
                 }}
             """)
-            btn.clicked.connect(lambda _, c=color: self.select_color(c))
+            btn.clicked.connect(lambda _, col=c: self.select_color(col))
             color_bar.addWidget(btn)
 
-        color_bar.addStretch()
-        grid_section.addLayout(color_bar)
+        self.main.addLayout(color_bar)
 
-        center_container.addLayout(grid_section)
-        center_container.addStretch(1)
-
-        main.addLayout(center_container, stretch=1)
-
-    # GRAPH 
+    # ---------------- GRAPH ----------------
     def build_graph(self):
         self.graph.clear()
         for r in range(self.size):
@@ -199,13 +151,13 @@ class MapColoringGame(QWidget):
                     if 0 <= nr < self.size and 0 <= nc < self.size:
                         self.graph[(r, c)].append((nr, nc))
 
+    # ---------------- GAME SETUP ----------------
     def change_type(self):
         self.size = self.type_dropdown.currentData()
         self.new_game()
 
-    # NEW GAME 
     def new_game(self):
-        self.cell_colors.clear()
+        self.colors.clear()
         self.buttons.clear()
         self.human_score = 0
         self.cpu_score = 0
@@ -216,256 +168,219 @@ class MapColoringGame(QWidget):
         while self.grid_layout.count():
             self.grid_layout.takeAt(0).widget().deleteLater()
 
-        screen = QApplication.primaryScreen().availableGeometry()
-        side = min(screen.width() - 600, screen.height() - 500)
-        cell_size = max(64, side // self.size)
-
-        self.grid_frame.setFixedSize(
-            self.size * (cell_size + 6) + 24,
-            self.size * (cell_size + 6) + 24
-        )
-
         for r in range(self.size):
             for c in range(self.size):
                 cell = (r, c)
-                self.cell_colors[cell] = None
+                self.colors[cell] = None
+
                 btn = QPushButton("")
-                btn.setObjectName("cell")
-                btn.setFixedSize(cell_size, cell_size)
-                btn.clicked.connect(lambda _, pos=cell: self.human_move(pos))
+                btn.setFixedSize(70, 70)
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background:#F5F5F5;
+                        border:2px solid #B0BEC5;
+                        border-radius:12px;
+                    }
+                    QPushButton:hover {
+                        border:2px solid #2C3E50;
+                    }
+                """)
+                btn.clicked.connect(lambda _, cell=cell: self.human_move(cell))
                 self.grid_layout.addWidget(btn, r, c)
                 self.buttons[cell] = btn
 
-        # DEFAULT PREFILL
-        cells = list(self.cell_colors.keys())
+        # Prefill safe cells
+        cells = list(self.colors.keys())
         random.shuffle(cells)
-        filled = 0
-        for cell in cells:
-            if filled >= self.size:
-                break
-            for color in COLORS:
-                if self.is_valid(cell, color):
-                    self.cell_colors[cell] = color
-                    self.paint_cell(cell)
-                    filled += 1
+        for cell in cells[:self.size]:
+            for col in COLORS:
+                if self.valid(cell, col):
+                    self.colors[cell] = col
+                    self.paint(cell)
                     break
 
-        self.initial_colors = self.cell_colors.copy()
-        self.status_label.setText("New Game Started with Default Pattern")
+        self.initial_colors = self.colors.copy()
+        self.status.setText("New game started")
 
+    # ---------------- FIXED RESTART ----------------
     def restart_game(self):
-        self.cell_colors = self.initial_colors.copy()
+        self.colors = self.initial_colors.copy()
         self.human_score = 0
         self.cpu_score = 0
+        self.selected_color = None
         self.update_score()
+        self.status.setText("Game restarted")
 
-        for cell in self.cell_colors:
-            if self.cell_colors[cell]:
-                self.paint_cell(cell)
+        for cell in self.colors:
+            if self.colors[cell] is None:
+                self.buttons[cell].setStyleSheet("""
+                    QPushButton {
+                        background:#F5F5F5;
+                        border:2px solid #B0BEC5;
+                        border-radius:12px;
+                    }
+                """)
             else:
-                self.buttons[cell].setStyleSheet("")
+                self.paint(cell)
 
-        self.status_label.setText("Game Restarted")
-
-    # HELPERS 
+    # ---------------- HELPERS ----------------
     def update_score(self):
-        self.score_label.setText(f"Human: {self.human_score} | Computer: {self.cpu_score}")
+        self.score_label.setText(
+            f"Human: {self.human_score}    Computer: {self.cpu_score}"
+        )
 
     def select_color(self, color):
         self.selected_color = color
-        self.status_label.setText(f"Selected: {color.upper()}")
+        self.status.setText(f"Selected color: {color.upper()}")
 
-    def is_valid(self, cell, color):
-        return all(
-            self.cell_colors.get(n) != color
-            for n in self.graph[cell]
-            if self.cell_colors.get(n) is not None
-        )
+    def valid(self, cell, color):
+        return all(self.colors[n] != color for n in self.graph[cell])
 
-    def paint_cell(self, cell):
-        self.buttons[cell].setStyleSheet(
-            f"background:{self.cell_colors[cell]}; border:2px solid #334155;"
-        )
+    def paint(self, cell):
+        self.buttons[cell].setStyleSheet(f"""
+            QPushButton {{
+                background:{self.colors[cell]};
+                border:2px solid #2C3E50;
+                border-radius:12px;
+            }}
+        """)
 
-    # GAME END CHECK 
-    def check_complete(self):
-        if all(self.cell_colors[c] is not None for c in self.cell_colors):
+    def check_game_over(self):
+        if all(self.colors[cell] is not None for cell in self.colors):
             self.show_winner()
 
-    # HUMAN MOVE 
+    # ---------------- HUMAN ----------------
     def human_move(self, cell):
-        if not self.selected_color:
-            return
-        if self.cell_colors.get(cell) is not None:
-            return
-        if not self.is_valid(cell, self.selected_color):
-            self.human_score = max(0, self.human_score - 1)
-            self.update_score()
-            self.status_label.setText("Invalid Move (-1)")
-            QTimer.singleShot(1400, lambda: self.status_label.setText("Your turn"))
+        if not self.selected_color or self.colors[cell] is not None:
             return
 
-        self.cell_colors[cell] = self.selected_color
-        self.paint_cell(cell)
+        if not self.valid(cell, self.selected_color):
+            self.human_score -= 1
+            self.update_score()
+            return
+
+        self.colors[cell] = self.selected_color
+        self.paint(cell)
         self.human_score += 1
         self.update_score()
-        self.check_complete()
+
+        self.check_game_over()
         QTimer.singleShot(400, self.cpu_move)
 
-    # CPU MOVE (TRUE D&C) 
+    # ---------------- SAFE CPU ----------------
     def cpu_move(self):
-        result = self.divide_and_conquer_cpu(0, 0, self.size, self.size)
-        if result:
-            best_cell, _ = result
-            color = self.find_valid_color(best_cell)
-            if color:
-                self.cell_colors[best_cell] = color
-                self.paint_cell(best_cell)
-                self.cpu_score += 1
-                self.update_score()
-                self.check_complete()
-        else:
-            self.show_fail_popup()
-
-    def divide_and_conquer_cpu(self, sr, sc, er, ec):
-        region_size = (er - sr) * (ec - sc)
-        # Base Case
-        if region_size <= 4:
-            best_cell = None
-            best_score = -1
-            for r in range(sr, er):
-                for c in range(sc, ec):
-                    cell = (r, c)
-                    if self.cell_colors.get(cell) is None:
-                        color = self.find_valid_color(cell)
-                        if color:
-                            score = self.evaluate_cell(cell)
-                            if score > best_score:
-                                best_score = score
-                                best_cell = cell
-            if best_cell:
-                return (best_cell, best_score)
-            return None
-
-        # Divide
-        mid_r = (sr + er) // 2
-        mid_c = (sc + ec) // 2
-
-        q1 = self.divide_and_conquer_cpu(sr, sc, mid_r, mid_c)
-        q2 = self.divide_and_conquer_cpu(sr, mid_c, mid_r, ec)
-        q3 = self.divide_and_conquer_cpu(mid_r, sc, er, mid_c)
-        q4 = self.divide_and_conquer_cpu(mid_r, mid_c, er, ec)
-
-        # Combine
-        candidates = [q for q in [q1, q2, q3, q4] if q is not None]
-        if not candidates:
-            return None
-        return max(candidates, key=lambda x: x[1])
-
-    def evaluate_cell(self, cell):
-        score = 0
-        for n in self.graph[cell]:
-            if self.cell_colors.get(n) is None:
-                score += 1
-        return score
-
-    def find_valid_color(self, cell):
-        for color in COLORS:
-            if self.is_valid(cell, color):
-                return color
-        return None
-
-    #SOLVER 
-    def solve_board(self):
-        self.status_label.setText("Solving using backtracking...")
-        success = self.solve_recursive()
-        if success:
-            for cell in self.cell_colors:
-                if self.cell_colors[cell]:
-                    self.paint_cell(cell)
-            self.status_label.setText("Board Solved")
-        else:
-            self.status_label.setText("No Solution Found")
-        self.check_complete()
-
-    def solve_recursive(self):
-        uncolored = [c for c in self.cell_colors if self.cell_colors[c] is None]
+        uncolored = [c for c in self.colors if self.colors[c] is None]
         if not uncolored:
-            return True
-        cell = uncolored[0]
-        for color in COLORS:
-            if self.is_valid(cell, color):
-                self.cell_colors[cell] = color
-                if self.solve_recursive():
-                    return True
-                self.cell_colors[cell] = None
-        return False
+            return
 
-    # POPUPS
+        sorted_cells = sorted(
+            uncolored,
+            key=lambda cell: len(self.graph[cell]),
+            reverse=True
+        )
+
+        move_made = False
+
+        for cell in sorted_cells:
+            for col in COLORS:
+                if self.valid(cell, col):
+                    self.colors[cell] = col
+                    self.paint(cell)
+                    self.cpu_score += 1
+                    self.update_score()
+                    move_made = True
+                    break
+            if move_made:
+                break
+
+        if not move_made:
+            self.show_fail_popup()
+            return
+
+        self.check_game_over()
+
+    # ---------------- FAIL POPUP ----------------
     def show_fail_popup(self):
         popup = QDialog(self)
         popup.setWindowTitle("Game Over")
-        popup.setFixedSize(340, 180)
-        popup.setStyleSheet("background:#0f172a; color:#e2e8f0;")
+        popup.setFixedSize(350, 200)
 
-        lay = QVBoxLayout(popup)
-        lay.setContentsMargins(30, 30, 30, 30)
-
-        label = QLabel("No valid moves left!")
-        label.setStyleSheet("font-size:18px;")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(label)
-
-        btn = QPushButton("New Game")
-        btn.setStyleSheet("background:#6366f1; font-size:16px; padding:12px;")
-        btn.clicked.connect(lambda: [popup.accept(), self.new_game()])
-        lay.addWidget(btn)
-
-        popup.exec()
-
-    def show_winner(self):
-        popup = QDialog(self)
-        popup.setWindowTitle("Game Result")
-        popup.setFixedSize(380, 240)
-        popup.setStyleSheet("background:#0f172a; color:#e2e8f0;")
-
-        lay = QVBoxLayout(popup)
-        lay.setContentsMargins(30, 30, 30, 30)
-
-        if self.human_score > self.cpu_score:
-            result = "HUMAN WINS! 🎉"
-            color = "#22c55e"
-        elif self.cpu_score > self.human_score:
-            result = "COMPUTER WINS 🤖"
-            color = "#ef4444"
-        else:
-            result = "DRAW!"
-            color = "#3b82f6"
-
-        label = QLabel(result)
-        label.setStyleSheet(f"font-size:32px; font-weight:800; color:{color};")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(label)
-
-        score = QLabel(f"Human: {self.human_score}\nCPU: {self.cpu_score}")
-        score.setStyleSheet("font-size:18px;")
-        score.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(score)
+        layout = QVBoxLayout(popup)
+        msg = QLabel("Dead-end reached!\nNo valid moves left.")
+        msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         btn = QPushButton("Play Again")
-        btn.setStyleSheet("background:#6366f1; font-size:16px; padding:12px;")
-        btn.clicked.connect(lambda: [popup.accept(), self.new_game()])
-        lay.addWidget(btn)
+        btn.clicked.connect(lambda: [popup.close(), self.new_game()])
+
+        layout.addWidget(msg)
+        layout.addWidget(btn)
 
         popup.exec()
+
+    # ---------------- WINNER POPUP ----------------
+    def show_winner(self):
+        if self.human_score > self.cpu_score:
+            result = "HUMAN WINS!"
+        elif self.cpu_score > self.human_score:
+            result = "COMPUTER WINS!"
+        else:
+            result = "DRAW!"
+
+        popup = QDialog(self)
+        popup.setWindowTitle("Game Result")
+        popup.setFixedSize(350, 200)
+
+        layout = QVBoxLayout(popup)
+        msg = QLabel(result)
+        msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        score = QLabel(
+            f"Human: {self.human_score}\nComputer: {self.cpu_score}"
+        )
+        score.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        btn = QPushButton("Play Again")
+        btn.clicked.connect(lambda: [popup.close(), self.new_game()])
+
+        layout.addWidget(msg)
+        layout.addWidget(score)
+        layout.addWidget(btn)
+
+        popup.exec()
+
+    # ---------------- SOLVER ----------------
+    def solve_all(self):
+        self.divide_and_conquer()
+        for cell in self.colors:
+            if self.colors[cell]:
+                self.paint(cell)
+        self.check_game_over()
+
+    def divide_and_conquer(self):
+        uncolored = [c for c in self.colors if self.colors[c] is None]
+        if not uncolored:
+            return True
+
+        sorted_cells = sorted(
+            uncolored,
+            key=lambda cell: len(self.graph[cell]),
+            reverse=True
+        )
+
+        current = sorted_cells[0]
+
+        for col in COLORS:
+            if self.valid(current, col):
+                self.colors[current] = col
+                if self.divide_and_conquer():
+                    return True
+                self.colors[current] = None
+
+        return False
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-    font = QFont("Segoe UI", 10)
-    app.setFont(font)
-
     game = MapColoringGame()
     game.show()
     sys.exit(app.exec())
