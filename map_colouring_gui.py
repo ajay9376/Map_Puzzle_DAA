@@ -192,7 +192,16 @@ class MapColoringGame(QMainWindow):
         start_time = time.perf_counter()
         nodes = list(self.region_items.keys())
         
-        
+        def dc_solve(node_list):
+            if not node_list: return
+            if len(node_list) <= 1:
+                n = node_list[0]
+                used = {self.region_colors.get(nb) for nb in self.adj_graph[n] if self.region_colors.get(nb)}
+                for c in COLORS:
+                    if c not in used:
+                        self.region_colors[n] = c
+                        break
+                return
 
             # Divide
             node_list.sort(key=lambda n: self.region_items[n].boundingRect().center().x())
