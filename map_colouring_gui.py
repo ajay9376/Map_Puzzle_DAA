@@ -1,254 +1,267 @@
 import sys
 import random
+import time
 import numpy as np
 from scipy.spatial import Voronoi
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel,
-    QVBoxLayout, QHBoxLayout, QComboBox, QDialog, 
-    QFrame, QGraphicsView, QGraphicsScene, QGraphicsPolygonItem
+    QVBoxLayout, QHBoxLayout, QMainWindow, 
+    QGraphicsView, QGraphicsScene, QGraphicsPolygonItem
 )
 from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF
-from PyQt6.QtGui import QFont, QColor, QPolygonF, QPen, QBrush, QPainter
+from PyQt6.QtGui import QColor, QPolygonF, QPen, QBrush, QPainter, QAction
 
 COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#eab308"]
 COLOR_NAMES = ["Red", "Green", "Blue", "Yellow"]
 
 class ZoomableGraphicsView(QGraphicsView):
-    """Custom view to handle mouse wheel zooming"""
     def wheelEvent(self, event):
-        zoom_in_factor = 1.25
-        zoom_out_factor = 1 / zoom_in_factor
-
-        if event.angleDelta().y() > 0:
-            zoom_factor = zoom_in_factor
-        else:
-            zoom_factor = zoom_out_factor
-
-        self.scale(zoom_factor, zoom_factor)
+        factor = 1.25 if event.angleDelta().y() > 0 else 0.8
+        self.scale(factor, factor)
 
 class RegionItem(QGraphicsPolygonItem):
-    """Custom Polygon Item to handle clicks and coloring"""
     def __init__(self, polygon, region_id, game_parent):
         super().__init__(polygon)
         self.region_id = region_id
         self.game_parent = game_parent
-        self.setAcceptHoverEvents(True)
-        self.setPen(QPen(QColor("#475569"), 2))
+        self.setPen(QPen(QColor("#475569"), 1.5))
         self.setBrush(QBrush(QColor("#1e293b")))
 
     def mousePressEvent(self, event):
         self.game_parent.handle_region_click(self.region_id)
 
-class MapColoringGame(QWidget):
+class MapColoringGame(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Polygonal Map Coloring - Graph Theory")
+        self.setWindowTitle("DAA Algorithm Lab: Map Coloring")
         self.resize(1200, 900)
         
-        self.region_count = 15
+        self.region_count = 25
         self.adj_graph = {} 
         self.region_colors = {}
         self.region_items = {}
-        self.human_score = 0
-        self.cpu_score = 0
-        self.selected_color = None
+        self.active_brush_color = COLORS[0]
 
         self.init_ui()
+        self.create_menu()
         self.apply_theme()
         QTimer.singleShot(100, self.new_game)
 
     def init_ui(self):
-        layout = QVBoxLayout(self)
+        central = QWidget()
+        self.setCentralWidget(central)
+        layout = QVBoxLayout(central)
         
-        # Header
-        header = QHBoxLayout()
-        title = QLabel("Voronoi Map Game")
-        title.setStyleSheet("font-size:30px; font-weight:800;")
-        self.status_label = QLabel("Scroll to Zoom | Drag to Pan")
-        header.addWidget(title)
-        header.addStretch()
-        header.addWidget(self.status_label)
-        layout.addLayout(header)
+        # Stats Bar
+        stats_layout = QHBoxLayout()
+        self.status_label = QLabel("Ready")
+        self.timer_label = QLabel("Execution Time: 0ms")
+        stats_layout.addWidget(self.status_label)
+        stats_layout.addStretch()
+        stats_layout.addWidget(self.timer_label)
+        layout.addLayout(stats_layout)
 
-        # Controls
-        controls = QHBoxLayout()
-        self.diff_dropdown = QComboBox()
-        self.diff_dropdown.addItems(["Easy (10 regions)", "Medium (20 regions)", "Hard (35 regions)"])
-        self.diff_dropdown.currentIndexChanged.connect(self.change_difficulty)
-        
-        new_btn = QPushButton("Generate New Map")
-        new_btn.clicked.connect(self.new_game)
-
-        solve_btn = QPushButton("Solve (Backtracking)")
-        solve_btn.setStyleSheet("background-color: #10b981;")
-        solve_btn.clicked.connect(self.solve_map)
-        
-        controls.addWidget(QLabel("Complexity:"))
-        controls.addWidget(self.diff_dropdown)
-        controls.addStretch()
-        controls.addWidget(solve_btn)
-        controls.addWidget(new_btn)
-        layout.addLayout(controls)
-
-        # Score Board
-        self.score_label = QLabel("Human: 0 | Computer: 0")
-        self.score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.score_label.setStyleSheet("font-size:20px; background: rgba(255,255,255,0.1); border-radius:10px; padding:10px;")
-        layout.addWidget(self.score_label)
-
-        # Game Area
+        # Scene
         self.scene = QGraphicsScene()
         self.view = ZoomableGraphicsView(self.scene)
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-        self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.view.setStyleSheet("background: #0f172a; border-radius: 15px; border: 1px solid #334155;")
         layout.addWidget(self.view)
 
-        # Color Palette
-        palette = QHBoxLayout()
-        palette.addStretch()
-        for color, name in zip(COLORS, COLOR_NAMES):
-            btn = QPushButton(name)
-            btn.setFixedSize(100, 40)
-            btn.setStyleSheet(f"background: {color}; color: white; font-weight: bold; border-radius: 8px;")
-            btn.clicked.connect(lambda _, c=color: self.select_color(c))
-            palette.addWidget(btn)
-        palette.addStretch()
-        layout.addLayout(palette)
+        # Color Selection Palette (Visible at Bottom)
+        palette_container = QWidget()
+        palette_layout = QHBoxLayout(palette_container)
+        palette_layout.addWidget(QLabel("Manual Brush:"))
+        for i, col in enumerate(COLORS):
+            btn = QPushButton(COLOR_NAMES[i])
+            btn.setFixedSize(80, 30)
+            btn.setStyleSheet(f"background-color: {col}; color: white; border-radius: 5px;")
+            btn.clicked.connect(lambda chk, c=col: self.set_active_color(c))
+            palette_layout.addWidget(btn)
+        palette_layout.addStretch()
+        layout.addWidget(palette_container)
 
-    def change_difficulty(self):
-        counts = [10, 20, 35]
-        self.region_count = counts[self.diff_dropdown.currentIndex()]
-        self.new_game()
+    def create_menu(self):
+        menubar = self.menuBar()
+        
+        # Map Menu
+        map_menu = menubar.addMenu(" Map ")
+        map_menu.addAction("Generate New Map", self.new_game)
+        
+        # Complexity Menu
+        comp_menu = menubar.addMenu(" Complexity ")
+        for label, count in [("Easy (15)", 15), ("Medium (30)", 30), ("Hard (60)", 60)]:
+            act = QAction(label, self)
+            act.triggered.connect(lambda chk, c=count: self.set_complexity(c))
+            comp_menu.addAction(act)
 
-    def generate_map(self):
+        # Solve Menu
+        solve_menu = menubar.addMenu(" Solve (Algorithms) ")
+        solve_menu.addAction("1. Greedy Algorithm", self.solve_greedy)
+        solve_menu.addAction("2. Backtracking (Exhaustive)", self.solve_backtracking)
+        solve_menu.addAction("3. Divide & Conquer (Spatial)", self.solve_divide_and_conquer)
+
+    def set_active_color(self, color):
+        self.active_brush_color = color
+        self.status_label.setText(f"Active Color: {color}")
+
+    # --- ALGORITHMS ---
+
+    def solve_greedy(self):
+        self.reset_colors()
+        start_time = time.perf_counter()
+        
+        # Greedy logic: Assign the first available color to each node
+        for node in self.region_items:
+            neighbor_colors = {self.region_colors[nb] for nb in self.adj_graph[node] if self.region_colors[nb]}
+            for col in COLORS:
+                if col not in neighbor_colors:
+                    self.apply_color(node, col)
+                    break
+        
+        self.finalize_solve("Greedy", start_time)
+
+    def solve_backtracking(self):
+        self.reset_colors()
+        start_time = time.perf_counter()
+        nodes = list(self.region_items.keys())
+        
+        def backtrack(index):
+            if index == len(nodes): return True
+            node = nodes[index]
+            for col in COLORS:
+                if all(self.region_colors[nb] != col for nb in self.adj_graph[node]):
+                    self.region_colors[node] = col
+                    if backtrack(index + 1): return True
+                    self.region_colors[node] = None 
+            return False
+
+        if backtrack(0):
+            for n, c in self.region_colors.items(): self.apply_color(n, c)
+            self.finalize_solve("Backtracking", start_time)
+        else:
+            self.status_label.setText("No solution found.")
+
+    def solve_divide_and_conquer(self):
+        
+        self.reset_colors()
+        start_time = time.perf_counter()
+        nodes = list(self.region_items.keys())
+        
+        def dc_solve(node_list):
+            if not node_list: return
+            if len(node_list) <= 3:
+                for n in node_list:
+                    used = {self.region_colors.get(nb) for nb in self.adj_graph[n] if self.region_colors.get(nb)}
+                    for c in COLORS:
+                        if c not in used:
+                            self.region_colors[n] = c
+                            break
+                return
+
+            # Divide spatially
+            node_list.sort(key=lambda n: self.region_items[n].boundingRect().center().x())
+            mid = len(node_list) // 2
+            dc_solve(node_list[:mid])
+            dc_solve(node_list[mid:])
+
+            # Combine: Fix conflicts on the "seam"
+            for n in node_list:
+                neigh_cols = {self.region_colors.get(nb) for nb in self.adj_graph[n] if self.region_colors.get(nb)}
+                if self.region_colors.get(n) in neigh_cols:
+                    for c in COLORS:
+                        if c not in neigh_cols:
+                            self.region_colors[n] = c
+                            break
+        
+        dc_solve(nodes)
+        for n, c in self.region_colors.items(): self.apply_color(n, c)
+        self.finalize_solve("Divide & Conquer", start_time)
+
+    # --- CORE UTILS ---
+
+    def finalize_solve(self, name, start_time):
+        ms = (time.perf_counter() - start_time) * 1000
+        self.status_label.setText(f"Algorithm: {name}")
+        self.timer_label.setText(f"Time: {ms:.2f}ms")
+
+    def reset_colors(self):
+        for rid in self.region_items:
+            self.region_colors[rid] = None
+            self.region_items[rid].setBrush(QBrush(QColor("#1e293b")))
+
+    def new_game(self):
         self.scene.clear()
-        self.adj_graph = {}
-        self.region_colors = {}
-        self.region_items = {}
+        self.adj_graph, self.region_colors, self.region_items = {}, {}, {}
         
-        v_w, v_h = 1000, 1000
-        points = [[random.uniform(0, v_w), random.uniform(0, v_h)] for _ in range(self.region_count)]
-        points.extend([[-v_w, -v_h], [-v_w, 2*v_h], [2*v_w, -v_h], [2*v_w, 2*v_h]])
+        width, height = 800, 600
+        # Generate random points but keep them away from the extreme edges
+        points = [[random.uniform(50, width-50), random.uniform(50, height-50)] for _ in range(self.region_count)]
         
+        # Dummy points to ensure Voronoi covers the whole screen
+        points.extend([[-1000, -1000], [2000, -1000], [-1000, 2000], [2000, 2000]])
         vor = Voronoi(points)
-        region_idx = 0
+        
+        # Clipping Rect to stop shapes from being too big at corners
+        clip_rect = QRectF(0, 0, width, height)
+        rid = 0
         
         for region in vor.regions:
             if not region or -1 in region: continue
+            poly_points = [QPointF(vor.vertices[i][0], vor.vertices[i][1]) for i in region]
+            poly = QPolygonF(poly_points)
             
-            polygon_points = [QPointF(vor.vertices[i][0], vor.vertices[i][1]) for i in region]
-            poly_item = RegionItem(QPolygonF(polygon_points), region_idx, self)
-            
-            if poly_item.boundingRect().width() > v_w * 1.2: continue
+            # Intersection with main view area only
+            item = RegionItem(poly, rid, self)
+            if clip_rect.intersects(item.boundingRect()):
+                self.scene.addItem(item)
+                self.region_items[rid] = item
+                self.region_colors[rid] = None
+                self.adj_graph[rid] = set()
+                rid += 1
 
-            self.scene.addItem(poly_item)
-            self.region_items[region_idx] = poly_item
-            self.region_colors[region_idx] = None
-            self.adj_graph[region_idx] = set()
-            region_idx += 1
-
+        # Calculate Adjacency
         for id1, item1 in self.region_items.items():
             for id2, item2 in self.region_items.items():
                 if id1 >= id2: continue
-                set1 = set((round(p.x(), 1), round(p.y(), 1)) for p in item1.polygon())
-                set2 = set((round(p.x(), 1), round(p.y(), 1)) for p in item2.polygon())
-                if len(set1.intersection(set2)) >= 2:
+                # Precision check for shared edges
+                p1 = set((round(v.x(), 0), round(v.y(), 0)) for v in item1.polygon())
+                p2 = set((round(v.x(), 0), round(v.y(), 0)) for v in item2.polygon())
+                if len(p1.intersection(p2)) >= 2:
                     self.adj_graph[id1].add(id2)
                     self.adj_graph[id2].add(id1)
 
-        self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-50, -50, 50, 50))
-        self.view.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        self.scene.setSceneRect(clip_rect)
+        self.view.fitInView(clip_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
-    def select_color(self, color):
-        self.selected_color = color
-        self.status_label.setText(f"Active Color: {color}")
+    def apply_color(self, rid, color):
+        self.region_colors[rid] = color
+        self.region_items[rid].setBrush(QBrush(QColor(color if color else "#1e293b")))
 
-    def handle_region_click(self, region_id):
-        if not self.selected_color or self.region_colors[region_id]:
-            return
+    def set_complexity(self, count):
+        self.region_count = count
+        self.new_game()
 
-        for neighbor in self.adj_graph.get(region_id, []):
-            if self.region_colors[neighbor] == self.selected_color:
-                self.status_label.setText("Conflict!")
-                return
-
-        self.region_colors[region_id] = self.selected_color
-        self.region_items[region_id].setBrush(QBrush(QColor(self.selected_color)))
-        self.human_score += 1
-        self.update_stats()
-        QTimer.singleShot(400, self.cpu_move)
-
-    def cpu_move(self):
-        uncolored = [r for r, c in self.region_colors.items() if c is None]
-        if not uncolored: return
-
-        random.shuffle(uncolored)
-        for rid in uncolored:
-            available_colors = list(COLORS)
-            random.shuffle(available_colors)
-            for col in available_colors:
-                if all(self.region_colors.get(nb) != col for nb in self.adj_graph.get(rid, [])):
-                    self.region_colors[rid] = col
-                    self.region_items[rid].setBrush(QBrush(QColor(col)))
-                    self.cpu_score += 1
-                    self.update_stats()
-                    return
-
-    def solve_map(self):
-        """Backtracking solver for the polygonal graph"""
-        def is_safe(node, color, assignment):
-            for neighbor in self.adj_graph.get(node, []):
-                if neighbor in assignment and assignment[neighbor] == color:
-                    return False
-            return True
-
-        def backtrack(nodes, assignment):
-            if not nodes:
-                return assignment
-            
-            node = nodes[0]
-            for color in COLORS:
-                if is_safe(node, color, assignment):
-                    assignment[node] = color
-                    result = backtrack(nodes[1:], assignment)
-                    if result: return result
-                    del assignment[node]
-            return None
-
-        all_nodes = list(self.region_items.keys())
-        solution = backtrack(all_nodes, {})
-        
-        if solution:
-            for rid, color in solution.items():
-                self.region_colors[rid] = color
-                self.region_items[rid].setBrush(QBrush(QColor(color)))
-            self.status_label.setText("Map Solved via Backtracking")
+    def handle_region_click(self, rid):
+        # Check for conflicts manually
+        neighbor_colors = {self.region_colors[nb] for nb in self.adj_graph[rid]}
+        if self.active_brush_color in neighbor_colors:
+            self.status_label.setText("Conflict! Can't place that color there.")
         else:
-            self.status_label.setText("No solution possible with 4 colors!")
-
-    def update_stats(self):
-        self.score_label.setText(f"Human: {self.human_score} | Computer: {self.cpu_score}")
-
-    def new_game(self):
-        self.human_score = 0
-        self.cpu_score = 0
-        self.update_stats()
-        self.generate_map()
-        self.view.resetTransform()
-        self.view.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+            self.apply_color(rid, self.active_brush_color)
 
     def apply_theme(self):
         self.setStyleSheet("""
-            QWidget { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI'; }
-            QPushButton { background-color: #6366f1; border: none; padding: 8px; border-radius: 5px; font-weight: bold; }
-            QPushButton:hover { background-color: #4f46e5; }
-            QComboBox { background: #1e293b; border: 1px solid #334155; padding: 5px; border-radius: 5px; }
+            QMainWindow { background-color: #0f172a; }
+            QLabel { color: #cbd5e1; font-family: 'Segoe UI'; font-weight: bold; }
+            QMenuBar { background-color: #1e293b; color: #f8fafc; padding: 5px; }
+            QMenuBar::item:selected { background-color: #3b82f6; border-radius: 4px; }
+            QPushButton { background-color: #334155; color: white; border: none; padding: 5px; font-weight: bold; }
+            QPushButton:hover { background-color: #475569; }
+            QGraphicsView { border: 2px solid #334155; background-color: #020617; }
         """)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    game = MapColoringGame()
-    game.show()
+    window = MapColoringGame()
+    window.show()
     sys.exit(app.exec())
