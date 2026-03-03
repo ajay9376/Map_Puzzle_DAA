@@ -1,19 +1,21 @@
 import sys
 import random
 import time
-import numpy as np
 from scipy.spatial import Voronoi
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel,
     QVBoxLayout, QHBoxLayout, QMainWindow,
-    QGraphicsView, QGraphicsScene, QGraphicsPolygonItem
+    QGraphicsView, QGraphicsScene, QGraphicsPolygonItem,
+    QFrame, QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF
 from PyQt6.QtGui import QColor, QPolygonF, QPen, QBrush, QPainter, QAction
 
 COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#eab308"]
-COLOR_NAMES = ["Red", "Green", "Blue", "Yellow"]
 
+# ─────────────────────────────────────────────────────────────
+# GRAPHICS ITEMS
+# ─────────────────────────────────────────────────────────────
 
 class ZoomableGraphicsView(QGraphicsView):
     def wheelEvent(self, event):
@@ -26,18 +28,22 @@ class RegionItem(QGraphicsPolygonItem):
         super().__init__(polygon)
         self.region_id = region_id
         self.game_parent = game_parent
-        self.setPen(QPen(QColor("#475569"), 1.5))
-        self.setBrush(QBrush(QColor("#1e293b")))
+        self.setPen(QPen(QColor("#1e3a5f"), 1.2))
+        self.setBrush(QBrush(QColor("#0d1f35")))
 
     def mousePressEvent(self, event):
         self.game_parent.handle_region_click(self.region_id)
 
 
+# ─────────────────────────────────────────────────────────────
+# MAIN GAME CLASS
+# ─────────────────────────────────────────────────────────────
+
 class MapColoringGame(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("DAA Lab: D&C CPU Map Coloring")
-        self.resize(1200, 900)
+        self.setWindowTitle("Geometric Divide & Conquer Map Coloring")
+        self.resize(1200, 850)
 
         self.region_count = 25
         self.adj_graph = {}
@@ -45,75 +51,13 @@ class MapColoringGame(QMainWindow):
         self.region_items = {}
         self.active_brush_color = COLORS[0]
 
-        # scores
         self.human_score = 0
         self.cpu_score = 0
 
         self.init_ui()
-        self.create_menu()
-        self.apply_theme()
         QTimer.singleShot(100, self.new_game)
 
-    def init_ui(self):
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-
-        stats_layout = QHBoxLayout()
-        self.status_label = QLabel("Mode: Divide & Conquer CPU Selection")
-        self.timer_label = QLabel("Execution Time: 0ms")
-        self.score_label = QLabel("Human: 0 | CPU: 0")
-
-        stats_layout.addWidget(self.status_label)
-        stats_layout.addStretch()
-        stats_layout.addWidget(self.score_label)
-        stats_layout.addWidget(self.timer_label)
-        layout.addLayout(stats_layout)
-
-        self.scene = QGraphicsScene()
-        self.view = ZoomableGraphicsView(self.scene)
-        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        layout.addWidget(self.view)
-
-        palette_container = QWidget()
-        palette_layout = QHBoxLayout(palette_container)
-        palette_layout.addWidget(QLabel("Your Brush:"))
-
-        for i, col in enumerate(COLORS):
-            btn = QPushButton(COLOR_NAMES[i])
-            btn.setFixedSize(80, 30)
-            btn.setStyleSheet(
-                f"background-color: {col}; color: white; border-radius: 5px;"
-            )
-            btn.clicked.connect(lambda chk, c=col: self.set_active_color(c))
-            palette_layout.addWidget(btn)
-
-        reset_btn = QPushButton("Reset Map")
-        reset_btn.setFixedSize(100, 30)
-        reset_btn.clicked.connect(self.reset_colors)
-
-        palette_layout.addStretch()
-        palette_layout.addWidget(reset_btn)
-        layout.addWidget(palette_container)
-
-    # ---------------- MENU ----------------
-
-    def create_menu(self):
-        menubar = self.menuBar()
-        map_menu = menubar.addMenu(" Map ")
-        map_menu.addAction("Generate New Map", self.new_game)
-
-        comp_menu = menubar.addMenu(" Complexity ")
-        for label, count in [("Easy (15)", 15), ("Medium (30)", 30), ("Hard (60)", 60)]:
-            act = QAction(label, self)
-            act.triggered.connect(lambda chk, c=count: self.set_complexity(c))
-            comp_menu.addAction(act)
-
-    # ---------------- USER ----------------
-
-    def set_active_color(self, color):
-        self.active_brush_color = color
-        self.status_label.setText(f"Active Brush: {color}")
+    # ───────────────── USER MOVE ─────────────────
 
     def handle_region_click(self, rid):
         if self.region_colors.get(rid) is not None:
@@ -126,73 +70,120 @@ class MapColoringGame(QMainWindow):
         }
 
         if self.active_brush_color in neighbor_colors:
-            self.status_label.setText("Conflict! Check neighbors.")
+            self.status_label.setText("Conflict detected!")
         else:
             self.apply_color(rid, self.active_brush_color, player="HUMAN")
-            self.status_label.setText(
-                "User move placed. CPU calculating D&C split..."
-            )
             QTimer.singleShot(400, self.cpu_move_dc)
 
-    # ---------------- CPU D&C (INDEX-BASED) ----------------
+    # ───────────────── CPU MOVE ─────────────────
 
     def cpu_move_dc(self):
         start_time = time.perf_counter()
 
-        # Step 1: get uncolored regions
         uncolored = [rid for rid, col in self.region_colors.items() if col is None]
 
         if not uncolored:
-            self.check_game_end()
+            self.status_label.setText("Map Complete!")
             return
 
-        # -------- DIVIDE (index-based) --------
-        mid = len(uncolored) // 2
-        left_half = uncolored[:mid]
-        right_half = uncolored[mid:]
+        target = self.dc_select(uncolored)
 
-        # -------- CONQUER --------
-        if right_half:
-            target_rid = right_half[len(right_half) // 2]
-        else:
-            target_rid = left_half[len(left_half) // 2]
+        if target is not None:
+            success = self.greedy_color(target)
 
-        # -------- COMBINE --------
+            if not success:
+                resolved = self.resolve_deadlock(target)
+
+                # Safe fallback (rare case)
+                if not resolved:
+                    self.status_label.setText("Rare deadlock — restarting map")
+                    self.new_game()
+                    return
+
+        ms = (time.perf_counter() - start_time) * 1000
+        self.status_label.setText(f"CPU Move Time: {ms:.3f} ms")
+
+    # ───────────────── GEOMETRIC D&C ─────────────────
+
+    def dc_select(self, region_list):
+        if len(region_list) == 1:
+            return region_list[0]
+
+        centroids = [(rid, self.compute_centroid(rid)) for rid in region_list]
+        x_values = sorted([c[1][0] for c in centroids])
+        median_x = x_values[len(x_values) // 2]
+
+        left = [rid for rid, (x, y) in centroids if x < median_x]
+        right = [rid for rid, (x, y) in centroids if x >= median_x]
+
+        if not left:
+            left = right[:1]
+        if not right:
+            right = left[:1]
+
+        # Divide → Conquer → Combine (selection)
+        left_candidate = self.dc_select(left)
+        if left_candidate is not None:
+            return left_candidate
+        return self.dc_select(right)
+
+    def compute_centroid(self, rid):
+        polygon = self.region_items[rid].polygon()
+        x_sum = sum(point.x() for point in polygon)
+        y_sum = sum(point.y() for point in polygon)
+        return (x_sum / len(polygon), y_sum / len(polygon))
+
+    # ───────────────── GREEDY COLORING ─────────────────
+
+    def greedy_color(self, rid):
         neighbor_colors = {
             self.region_colors[nb]
-            for nb in self.adj_graph[target_rid]
+            for nb in self.adj_graph[rid]
             if self.region_colors[nb]
         }
 
-        placed = False
-
-        # try coloring target
         for col in COLORS:
             if col not in neighbor_colors:
-                self.apply_color(target_rid, col, player="CPU")
-                placed = True
-                break
+                self.apply_color(rid, col, player="CPU")
+                return True
 
-        # fallback
-        if not placed:
-            for rid in uncolored:
-                nb_colors = {
-                    self.region_colors[nb]
-                    for nb in self.adj_graph[rid]
-                    if self.region_colors[nb]
-                }
-                for col in COLORS:
-                    if col not in nb_colors:
-                        self.apply_color(rid, col, player="CPU")
-                        placed = True
-                        break
-                if placed:
-                    break
+        return False
 
-        ms = (time.perf_counter() - start_time) * 1000
-        self.timer_label.setText(f"CPU Time: {ms:.4f}ms")
+    # ───────────────── DEADLOCK RESOLUTION ─────────────────
 
-    # ---------------- APPLY COLOR + SCORING ----------------
+    def resolve_deadlock(self, rid):
+        neighbors = list(self.adj_graph[rid])
+        candidates = []
+
+        for nb in neighbors:
+            alt_colors = self.get_alternative_colors(nb, exclude=rid)
+            if alt_colors:
+                degree = len(self.adj_graph[nb])
+                candidates.append((degree, nb, alt_colors))
+
+        if not candidates:
+            return False
+
+        # Select smallest degree neighbor
+        candidates.sort(key=lambda x: x[0])
+        _, chosen_nb, alt_colors = candidates[0]
+
+        new_color = alt_colors[0]
+        self.region_colors[chosen_nb] = new_color
+        self.region_items[chosen_nb].setBrush(QBrush(QColor(new_color)))
+
+        return self.greedy_color(rid)
+
+    def get_alternative_colors(self, rid, exclude=None):
+        used = {
+            self.region_colors[nb]
+            for nb in self.adj_graph[rid]
+            if nb != exclude and self.region_colors[nb]
+        }
+
+        return [c for c in COLORS if c not in used and c != self.region_colors[rid]]
+
+    # ───────────────── APPLY COLOR ─────────────────
 
     def apply_color(self, rid, color, player="CPU"):
         self.region_colors[rid] = color
@@ -203,44 +194,13 @@ class MapColoringGame(QMainWindow):
         else:
             self.cpu_score += 1
 
-        self.score_label.setText(
-            f"Human: {self.human_score} | CPU: {self.cpu_score}"
-        )
-
-        self.check_game_end()
-
-    # ---------------- WINNER ----------------
-
-    def check_game_end(self):
-        if all(c is not None for c in self.region_colors.values()):
-            if self.human_score > self.cpu_score:
-                self.status_label.setText("🎉 Human Wins!")
-            elif self.cpu_score > self.human_score:
-                self.status_label.setText("🤖 CPU Wins!")
-            else:
-                self.status_label.setText("🤝 It's a Draw!")
-
-    # ---------------- RESET ----------------
-
-    def reset_colors(self):
-        for rid in self.region_items:
-            self.region_colors[rid] = None
-            self.region_items[rid].setBrush(QBrush(QColor("#1e293b")))
-
-        self.human_score = 0
-        self.cpu_score = 0
-        self.score_label.setText("Human: 0 | CPU: 0")
-        self.status_label.setText("Map Reset. Your turn!")
-
-    # ---------------- MAP ----------------
+    # ───────────────── MAP GENERATION ─────────────────
 
     def new_game(self):
         self.scene.clear()
         self.adj_graph, self.region_colors, self.region_items = {}, {}, {}
-
         self.human_score = 0
         self.cpu_score = 0
-        self.score_label.setText("Human: 0 | CPU: 0")
 
         width, height = 800, 600
         points = [
@@ -278,21 +238,23 @@ class MapColoringGame(QMainWindow):
         self.scene.setSceneRect(clip_rect)
         self.view.fitInView(clip_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
-    def set_complexity(self, count):
-        self.region_count = count
-        self.new_game()
+    # ───────────────── UI ─────────────────
 
-    def apply_theme(self):
-        self.setStyleSheet("""
-            QMainWindow { background-color: #0f172a; }
-            QLabel { color: #cbd5e1; font-family: 'Segoe UI'; font-weight: bold; }
-            QMenuBar { background-color: #1e293b; color: #f8fafc; padding: 5px; }
-            QMenuBar::item:selected { background-color: #3b82f6; border-radius: 4px; }
-            QPushButton { background-color: #334155; color: white; border: none; padding: 5px; font-weight: bold; }
-            QPushButton:hover { background-color: #475569; }
-            QGraphicsView { border: 2px solid #334155; background-color: #020617; }
-        """)
+    def init_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        layout = QVBoxLayout(central)
 
+        self.status_label = QLabel("Ready")
+        layout.addWidget(self.status_label)
+
+        self.scene = QGraphicsScene()
+        self.view = ZoomableGraphicsView(self.scene)
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        layout.addWidget(self.view)
+
+
+# ───────────────── MAIN ─────────────────
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
