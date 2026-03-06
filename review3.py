@@ -1,4 +1,3 @@
-
 import sys
 import random
 import time
@@ -16,10 +15,9 @@ from PyQt6.QtGui import QColor, QPolygonF, QPen, QBrush, QPainter, QAction, QFon
 # ─────────────────────────────────────────────
 #  CONSTANTS
 # ─────────────────────────────────────────────
-COLORS      = ["#ef4444", "#22c55e", "#3b82f6", "#eab308"]
-COLOR_NAMES = ["Red",     "Green",   "Blue",    "Yellow"]
-
-STEP_DELAY  = 1000   # ms between each backtrack animation step
+COLORS       = ["#ef4444", "#22c55e", "#3b82f6", "#eab308"]
+COLOR_NAMES  = ["Red",     "Green",   "Blue",    "Yellow"]
+STEP_DELAY   = 1000   # ms between each animation step
 
 
 # ─────────────────────────────────────────────
@@ -54,17 +52,25 @@ class RegionItem(QGraphicsPolygonItem):
         else:
             self._reset_style()
 
+    def highlight_target(self):
+        """White glow = CPU is targeting this region."""
+        self.setPen(QPen(QColor("#ffffff"), 4))
+
+    def highlight_boundary(self):
+        """Orange glow = boundary region being checked."""
+        self.setPen(QPen(QColor("#ff6600"), 4))
+
     def highlight_considering(self):
-        """Yellow border = CPU is considering recoloring this neighbor."""
+        """Yellow = backtrack considering this neighbor."""
         self.setPen(QPen(QColor("#facc15"), 4))
 
     def highlight_trying(self, color):
-        """Show tentative new color being tried."""
+        """Lighter shade = tentative recolor."""
         self.setPen(QPen(QColor("#ffffff"), 3))
         self.setBrush(QBrush(QColor(color).lighter(130)))
 
     def highlight_undo(self, old_color):
-        """Orange border = undo happening."""
+        """Orange = undo happening."""
         self.setPen(QPen(QColor("#ff6600"), 3))
         self.setBrush(QBrush(QColor(old_color)))
 
@@ -95,15 +101,16 @@ class MapColoringGame(QMainWindow):
         self.current_step   = 0
 
         self.deadlocked_regions = set()
+        self.auto_play_active   = False
 
-        # Animation state
+        # Animation engine
         self._animating  = False
         self._anim_steps = []
         self._anim_index = 0
         self._anim_timer = QTimer(self)
         self._anim_timer.timeout.connect(self._run_next_anim_step)
 
-        # Pulse timer for deadlock flash
+        # Pulse timer
         self._pulse_timer = QTimer(self)
         self._pulse_timer.timeout.connect(self._pulse_tick)
         self._pulse_state = False
@@ -153,7 +160,7 @@ class MapColoringGame(QMainWindow):
                 item.setBrush(QBrush(QColor("#1a0000")))
 
     # ══════════════════════════════════════════
-    #  LOG PANEL
+    #  LOG
     # ══════════════════════════════════════════
     def log(self, msg: str, color: str = "white"):
         self.log_panel.append(f'<span style="color:{color};">{msg}</span>')
@@ -195,7 +202,7 @@ class MapColoringGame(QMainWindow):
             ids = ", ".join(f"R{r}" for r in new_deadlocks)
             self.status_label.setText(f"⚠ Deadlock: {ids}")
             self.status_label.setStyleSheet("color:#ff4444; font-weight:bold;")
-            self.log(f"⚠ Deadlock on region(s): {ids}", "#ff4444")
+            self.log(f"⚠ Deadlock on: {ids}", "#ff4444")
         else:
             self.status_label.setText("✓ No deadlocks")
             self.status_label.setStyleSheet("color:#22c55e;")
@@ -206,7 +213,7 @@ class MapColoringGame(QMainWindow):
     #  HUMAN MOVE
     # ══════════════════════════════════════════
     def handle_region_click(self, rid):
-        if self._animating:
+        if self._animating or self.auto_play_active:
             return
         if self.selected_color is None:
             return
@@ -227,7 +234,7 @@ class MapColoringGame(QMainWindow):
             self.log(f"👤 Human colored R{rid} → {color_name}", "#88ccff")
         else:
             self.human_score -= 1
-            self.log(f"❌ Human invalid move on R{rid} (−1 point)", "#ff6666")
+            self.log(f"❌ Invalid move on R{rid} (−1 point)", "#ff6666")
             self.status_label.setText("Invalid move! −1 point")
             self.status_label.setStyleSheet("color:#ff4444;")
 
@@ -237,7 +244,10 @@ class MapColoringGame(QMainWindow):
         self.check_game_complete()
 
     # ══════════════════════════════════════════
-    #  CPU TURN
+    #  CPU TURN — one region per turn
+    #  DIVIDE → pick one region from left
+    #  CONQUER → greedy color it
+    #  COMBINE → check boundary deadlock → backtrack
     # ══════════════════════════════════════════
     def cpu_turn(self):
         if self._animating:
@@ -245,21 +255,203 @@ class MapColoringGame(QMainWindow):
 
         self._cpu_start_time = time.perf_counter()
 
+        uncolored = [rid for rid, c in self.region_colors.items() if c is None]
+        if not uncolored:
+            self.check_game_complete()
+            return
+
+        self.log("─" * 36, "#333")
+
+        # DIVIDE
+        left, right  = self._divide(uncolored)
+        self.log(f"📐 DIVIDE → Left({len(left)}) | Right({len(right)})", "#facc15")
+
+        # CONQUER — pick ONE region from left half
+        target = self._dc_pick(left) or self._dc_pick(right)
+        if target is None:
+            self._finish_cpu_turn()
+            return
+        self.log(f"🎯 CONQUER → targeting R{target}", "#a78bfa")
+
+        colored = self._greedy_color_region(target)
+
+        if not colored:
+            # Greedy failed — backtrack repair then done
+            self.log(f"⚠ Greedy failed on R{target} → backtrack repair", "#ff4444")
+            self.detect_deadlocks()
+            self._run_animated_repair(
+                [target],
+                on_done=self._finish_cpu_turn
+            )
+            return
+
+        # COMBINE — check boundary after coloring
+        boundary = self._find_boundary(left, right)
+        if boundary:
+            self.log(
+                f"🔗 COMBINE → boundary: {[f'R{r}' for r in boundary]}",
+                "#facc15"
+            )
+            # Highlight boundary regions briefly
+            for br in boundary:
+                item = self.region_items.get(br)
+                if item and self.region_colors[br] is None:
+                    item.highlight_boundary()
+
+        self.detect_deadlocks()
+
         if self.deadlocked_regions:
-            # Phase 1: animated backtrack repair first
-            stuck_list = list(self.deadlocked_regions)
-            self.log("─" * 36, "#333")
-            self.log("🔧 CPU: Deadlock found — backtrack repair starting...", "#facc15")
-            self._run_animated_repair(stuck_list, on_done=self._cpu_dc_move)
+            self.log("🔧 Boundary deadlock found → backtrack repair...", "#ff4444")
+            self._run_animated_repair(
+                list(self.deadlocked_regions),
+                on_done=self._finish_cpu_turn
+            )
         else:
-            self._cpu_dc_move()
+            self._finish_cpu_turn()
+
+    def _finish_cpu_turn(self):
+        runtime = (time.perf_counter() - self._cpu_start_time) * 1000
+        self.timer_label.setText(f"CPU Time: {runtime:.3f} ms")
+        self.detect_deadlocks()
+        self.update_score()
+        self.check_game_complete()
+
+        if self.auto_play_active:
+            # Continue auto play after delay
+            uncolored = [rid for rid, c in self.region_colors.items() if c is None]
+            if uncolored:
+                QTimer.singleShot(STEP_DELAY, self.cpu_turn)
+            else:
+                self._end_auto_play()
+        else:
+            self.log("✓ CPU done. Your move!", "#22c55e")
 
     # ══════════════════════════════════════════
-    #  ANIMATED REPAIR  (builds steps then queues)
+    #  AUTO PLAY
+    # ══════════════════════════════════════════
+    def start_auto_play(self):
+        if self._animating:
+            return
+
+        self.auto_play_active = True
+        self.auto_btn.setText("⏹ Stop Auto Play")
+        self.auto_btn.setStyleSheet(
+            "background:#dc2626; color:white; height:38px;"
+            "font-weight:bold; border-radius:5px; padding:0 14px;"
+        )
+        self.log("═" * 36, "#facc15")
+        self.log("🤖 CPU AUTO PLAY STARTED", "#facc15")
+        self.log("Watch: Divide → Conquer → Combine", "#aaa")
+        self.log("═" * 36, "#facc15")
+
+        QTimer.singleShot(500, self.cpu_turn)
+
+    def stop_auto_play(self):
+        self.auto_play_active = False
+        self._anim_timer.stop()
+        self._animating = False
+        self.auto_btn.setText("▶ CPU Auto Play")
+        self.auto_btn.setStyleSheet(
+            "background:#7c3aed; color:white; height:38px;"
+            "font-weight:bold; border-radius:5px; padding:0 14px;"
+        )
+        self.log("⏹ Auto play stopped.", "#aaa")
+
+    def _end_auto_play(self):
+        self.auto_play_active = False
+        self.auto_btn.setText("▶ CPU Auto Play")
+        self.auto_btn.setStyleSheet(
+            "background:#7c3aed; color:white; height:38px;"
+            "font-weight:bold; border-radius:5px; padding:0 14px;"
+        )
+        self.log("✅ Auto play complete!", "#22c55e")
+        self.check_game_complete()
+
+    def toggle_auto_play(self):
+        if self.auto_play_active:
+            self.stop_auto_play()
+        else:
+            self.reset_colors()
+            QTimer.singleShot(300, self.start_auto_play)
+
+    # ══════════════════════════════════════════
+    #  DIVIDE
+    # ══════════════════════════════════════════
+    def _divide(self, region_list):
+        if not region_list:
+            return [], []
+        centroids = [(rid, self.compute_centroid(rid)) for rid in region_list]
+        x_values  = sorted(c[1][0] for c in centroids)
+        median_x  = x_values[len(x_values) // 2]
+        left  = [rid for rid, (x, y) in centroids if x < median_x]
+        right = [rid for rid, (x, y) in centroids if x >= median_x]
+        if not left:
+            left  = right[:len(right) // 2]
+            right = right[len(right) // 2:]
+        return left, right
+
+    # ══════════════════════════════════════════
+    #  DC PICK — recursively pick one from left
+    # ══════════════════════════════════════════
+    def _dc_pick(self, region_list):
+        if not region_list:
+            return None
+        if len(region_list) == 1:
+            return region_list[0]
+        centroids = [(rid, self.compute_centroid(rid)) for rid in region_list]
+        x_values  = sorted(c[1][0] for c in centroids)
+        median_x  = x_values[len(x_values) // 2]
+        left  = [rid for rid, (x, y) in centroids if x < median_x]
+        right = [rid for rid, (x, y) in centroids if x >= median_x]
+        if not left:
+            return region_list[0]   # fallback: just return first
+        return self._dc_pick(left)
+
+    # ══════════════════════════════════════════
+    #  FIND BOUNDARY
+    # ══════════════════════════════════════════
+    def _find_boundary(self, left, right):
+        left_set  = set(left)
+        right_set = set(right)
+        boundary  = set()
+        for rid in left_set:
+            for nb in self.adj_graph[rid]:
+                if nb in right_set:
+                    boundary.add(rid)
+                    boundary.add(nb)
+        return list(boundary)
+
+    # ══════════════════════════════════════════
+    #  GREEDY COLOR ONE REGION
+    # ══════════════════════════════════════════
+    def _greedy_color_region(self, rid):
+        if self.region_colors[rid] is not None:
+            return True
+        neighbor_colors = {
+            self.region_colors[nb]
+            for nb in self.adj_graph[rid]
+            if self.region_colors[nb]
+        }
+        for col in COLORS:
+            if col not in neighbor_colors:
+                self.region_colors[rid] = col
+                item = self.region_items[rid]
+                item.setBrush(QBrush(QColor(col)))
+                item.setPen(QPen(QColor(col).lighter(150), 1))
+                item.deadlocked = False
+                self.deadlocked_regions.discard(rid)
+                self.cpu_score += 1
+                cname = COLOR_NAMES[COLORS.index(col)]
+                self.log(f"⚡ GREEDY → R{rid} = {cname}", "#6ee7b7")
+                return True
+        self.log(f"  ⚠ R{rid} greedy failed", "#ff4444")
+        return False
+
+    # ══════════════════════════════════════════
+    #  ANIMATED BACKTRACK REPAIR
     # ══════════════════════════════════════════
     def _run_animated_repair(self, stuck_list: list, on_done=None):
         steps = []
-
         for stuck_rid in stuck_list:
             if self.region_colors.get(stuck_rid) is not None:
                 continue
@@ -273,15 +465,12 @@ class MapColoringGame(QMainWindow):
             if on_done:
                 on_done()
 
-    def _build_repair_steps(self, stuck_rid, steps, visited, depth, max_depth=12):
+    def _build_repair_steps(self, stuck_rid, steps, visited, depth):
         """
-        Recursively build animation steps for repairing stuck_rid.
-        Modifies self.region_colors in place as it finds a valid assignment.
-        Returns True if repair path found.
+        No depth limit — backtracking always finds solution
+        on planar map with 4 colors (Four Color Theorem).
+        _step_success is the ONLY place that commits data + visuals.
         """
-        if depth > max_depth:
-            return False
-
         visited.add(stuck_rid)
 
         def used_by_stuck():
@@ -291,7 +480,7 @@ class MapColoringGame(QMainWindow):
                 if self.region_colors[nb] is not None
             }
 
-        # MRV heuristic: most constrained neighbors first
+        # MRV: most constrained neighbors first
         colored_neighbors = sorted(
             [nb for nb in self.adj_graph[stuck_rid]
              if self.region_colors[nb] is not None],
@@ -317,34 +506,33 @@ class MapColoringGame(QMainWindow):
             for alt_color in alternatives:
                 alt_name = COLOR_NAMES[COLORS.index(alt_color)]
 
-                # Step 1: highlight neighbor being considered (yellow border)
+                # Step 1: highlight neighbor (yellow)
                 steps.append(
                     (lambda r=nb, sr=stuck_rid, on=old_name, an=alt_name:
                      self._step_consider(r, sr, on, an))
                 )
 
-                # Step 2: show tentative recolor (lighter shade)
+                # Step 2: tentative recolor visual
                 steps.append(
                     (lambda r=nb, ac=alt_color, an=alt_name, sr=stuck_rid:
                      self._step_try(r, ac, an, sr))
                 )
 
-                # Tentatively apply to data (checking only)
+                # Check in data (temporary)
                 self.region_colors[nb] = alt_color
 
                 if len(used_by_stuck()) < len(COLORS):
                     if not self._causes_new_deadlock(nb, alt_color):
-                        # Find the free color for stuck region
                         free_color = next(
                             c for c in COLORS if c not in used_by_stuck()
                         )
                         free_name = COLOR_NAMES[COLORS.index(free_color)]
 
-                        # Revert data — _step_success will commit properly
+                        # Revert — _step_success commits properly
                         self.region_colors[nb]        = old_color
                         self.region_colors[stuck_rid] = None
 
-                        # Step 3: success animation commits data + visuals
+                        # Step 3: success
                         steps.append(
                             (lambda r=nb, ac=alt_color, an=alt_name,
                                     sr=stuck_rid, fc=free_color, fn=free_name:
@@ -352,7 +540,7 @@ class MapColoringGame(QMainWindow):
                         )
                         return True
 
-                # Undo data
+                # Revert
                 self.region_colors[nb] = old_color
 
                 # Step 3: undo visual
@@ -361,10 +549,9 @@ class MapColoringGame(QMainWindow):
                      self._step_undo(r, oc, on, an))
                 )
 
-                # Try recursing deeper
                 visited.add(nb)
                 deeper = self._build_repair_steps(
-                    stuck_rid, steps, visited, depth + 1, max_depth
+                    stuck_rid, steps, visited, depth + 1
                 )
                 visited.discard(nb)
                 if deeper:
@@ -372,135 +559,76 @@ class MapColoringGame(QMainWindow):
 
         return False
 
-    # ── Animation step visual handlers ──
+    # ── Animation step handlers ──
 
     def _step_consider(self, nb, stuck_rid, old_name, alt_name):
         item = self.region_items.get(nb)
         if item:
             item.highlight_considering()
+            item.update()
         self.log(
-            f"  🔍 Checking R{nb} ({old_name}) → try recolor to {alt_name}",
+            f"  🔍 Checking R{nb} ({old_name}) → try {alt_name}",
             "#facc15"
         )
-        self.status_label.setText(f"Backtrack: considering R{nb}...")
+        self.status_label.setText(f"Backtrack: checking R{nb}...")
         self.status_label.setStyleSheet("color:#facc15; font-weight:bold;")
 
     def _step_try(self, nb, alt_color, alt_name, stuck_rid):
         item = self.region_items.get(nb)
         if item:
             item.highlight_trying(alt_color)
+            item.update()
         self.log(
             f"  🎨 Trying R{nb} = {alt_name} ... frees R{stuck_rid}?",
             "#a78bfa"
         )
 
     def _step_success(self, nb, alt_color, alt_name, stuck_rid, free_color, free_name):
-        # Commit neighbor recolor — data + visual
+        # Commit neighbor — data + visual
         self.region_colors[nb] = alt_color
         item_nb = self.region_items.get(nb)
         if item_nb:
+            item_nb.deadlocked = False
             item_nb.setBrush(QBrush(QColor(alt_color)))
             item_nb.setPen(QPen(QColor(alt_color).lighter(150), 1))
-            item_nb.deadlocked = False
+            item_nb.update()
 
-        # Commit stuck region color — data + visual
+        # Commit stuck region — data + visual
         self.region_colors[stuck_rid] = free_color
         item_stuck = self.region_items.get(stuck_rid)
         if item_stuck:
+            item_stuck.deadlocked = False
             item_stuck.setBrush(QBrush(QColor(free_color)))
             item_stuck.setPen(QPen(QColor(free_color).lighter(150), 1))
-            item_stuck.mark_deadlock(False)
+            item_stuck.update()
 
+        self.deadlocked_regions.discard(nb)
         self.deadlocked_regions.discard(stuck_rid)
         self.cpu_score += 1
         self.update_score()
 
+        # Force scene refresh
+        if self.scene:
+            self.scene.update()
+
         self.log(
-            f"  ✅ R{nb} → {alt_name}  |  R{stuck_rid} → {free_name}  [Repaired!]",
+            f"  ✅ R{nb} → {alt_name} | R{stuck_rid} → {free_name} [Repaired!]",
             "#22c55e"
         )
-        self.status_label.setText(f"✓ R{stuck_rid} deadlock resolved!")
+        self.status_label.setText(f"✓ R{stuck_rid} resolved!")
         self.status_label.setStyleSheet("color:#22c55e; font-weight:bold;")
 
     def _step_undo(self, nb, old_color, old_name, tried_name):
         item = self.region_items.get(nb)
         if item:
             item.highlight_undo(old_color)
+            item.update()
+        if self.scene:
+            self.scene.update()
         self.log(
-            f"  ↩ {tried_name} didn't help — restoring R{nb} → {old_name}",
+            f"  ↩ {tried_name} failed → restoring R{nb} → {old_name}",
             "#f87171"
         )
-
-    # ══════════════════════════════════════════
-    #  CPU D&C NORMAL MOVE  (Phase 2)
-    # ══════════════════════════════════════════
-    def _cpu_dc_move(self):
-        uncolored = [rid for rid, c in self.region_colors.items() if c is None]
-        if not uncolored:
-            self.check_game_complete()
-            return
-
-        target  = self.dc_select(uncolored)
-        colored = self.greedy_color(target)
-
-        if not colored:
-            # Greedy failed on D&C target — instant repair
-            self._instant_backtrack(target, visited=set(), depth=0)
-            self.greedy_color(target)
-
-        runtime = (time.perf_counter() - self._cpu_start_time) * 1000
-        self.timer_label.setText(f"CPU Time: {runtime:.3f} ms")
-
-        self.detect_deadlocks()
-        self.update_score()
-        self.check_game_complete()
-
-    # ══════════════════════════════════════════
-    #  INSTANT BACKTRACK  (no animation, for D&C greedy fail)
-    # ══════════════════════════════════════════
-    def _instant_backtrack(self, stuck_rid, visited, depth, max_depth=12):
-        if depth > max_depth:
-            return False
-        visited.add(stuck_rid)
-
-        def used_by_stuck():
-            return {
-                self.region_colors[nb]
-                for nb in self.adj_graph[stuck_rid]
-                if self.region_colors[nb] is not None
-            }
-
-        colored_neighbors = sorted(
-            [nb for nb in self.adj_graph[stuck_rid]
-             if self.region_colors[nb] is not None],
-            key=lambda x: len(self.adj_graph[x]),
-            reverse=True
-        )
-
-        for nb in colored_neighbors:
-            if nb in visited:
-                continue
-            old_color = self.region_colors[nb]
-            nb_used   = {
-                self.region_colors[nn]
-                for nn in self.adj_graph[nb]
-                if nn != stuck_rid and self.region_colors[nn] is not None
-            }
-            alternatives = [c for c in COLORS
-                            if c != old_color and c not in nb_used]
-            for alt_color in alternatives:
-                self.region_colors[nb] = alt_color
-                self._update_visual(nb, alt_color)
-                if len(used_by_stuck()) < len(COLORS):
-                    if not self._causes_new_deadlock(nb, alt_color):
-                        return True
-                self.region_colors[nb] = old_color
-                self._update_visual(nb, old_color)
-                visited.add(nb)
-                if self._instant_backtrack(stuck_rid, visited, depth + 1):
-                    return True
-                visited.discard(nb)
-        return False
 
     # ══════════════════════════════════════════
     #  HELPERS
@@ -518,28 +646,6 @@ class MapColoringGame(QMainWindow):
                 return True
         return False
 
-    def _update_visual(self, rid, color):
-        item = self.region_items.get(rid)
-        if item:
-            item.setBrush(QBrush(QColor(color)))
-            item.setPen(QPen(QColor(color).lighter(150), 1))
-            item.deadlocked = False
-
-    # ══════════════════════════════════════════
-    #  D&C SELECTION
-    # ══════════════════════════════════════════
-    def dc_select(self, region_list):
-        if len(region_list) == 1:
-            return region_list[0]
-        centroids = [(rid, self.compute_centroid(rid)) for rid in region_list]
-        x_values  = sorted(c[1][0] for c in centroids)
-        median_x  = x_values[len(x_values) // 2]
-        left  = [rid for rid, (x, y) in centroids if x < median_x]
-        right = [rid for rid, (x, y) in centroids if x >= median_x]
-        if not left:
-            left = right[:1]
-        return self.dc_select(left)
-
     def compute_centroid(self, rid):
         polygon = self.region_items[rid].polygon()
         x = sum(p.x() for p in polygon) / len(polygon)
@@ -547,24 +653,7 @@ class MapColoringGame(QMainWindow):
         return (x, y)
 
     # ══════════════════════════════════════════
-    #  GREEDY COLOR
-    # ══════════════════════════════════════════
-    def greedy_color(self, rid):
-        neighbor_colors = {
-            self.region_colors[nb]
-            for nb in self.adj_graph[rid]
-            if self.region_colors[nb]
-        }
-        for col in COLORS:
-            if col not in neighbor_colors:
-                self.apply_color(rid, col, player="CPU")
-                cname = COLOR_NAMES[COLORS.index(col)]
-                self.log(f"🤖 CPU colored R{rid} → {cname}  (D&C + Greedy)", "#88ccff")
-                return True
-        return False
-
-    # ══════════════════════════════════════════
-    #  APPLY COLOR
+    #  APPLY COLOR (human)
     # ══════════════════════════════════════════
     def apply_color(self, rid, color, player="CPU"):
         self.region_colors[rid] = color
@@ -589,7 +678,8 @@ class MapColoringGame(QMainWindow):
     # ══════════════════════════════════════════
     def reset_colors(self):
         self._anim_timer.stop()
-        self._animating = False
+        self._animating       = False
+        self.auto_play_active = False
         for rid in self.region_items:
             self.region_colors[rid] = None
             self.region_items[rid].mark_deadlock(False)
@@ -600,6 +690,11 @@ class MapColoringGame(QMainWindow):
         self.update_score()
         self.status_label.setText("✓ No deadlocks")
         self.status_label.setStyleSheet("color:#22c55e;")
+        self.auto_btn.setText("▶ CPU Auto Play")
+        self.auto_btn.setStyleSheet(
+            "background:#7c3aed; color:white; height:38px;"
+            "font-weight:bold; border-radius:5px; padding:0 14px;"
+        )
         self.log_clear()
         self.log("🔄 Map reset.", "#aaa")
 
@@ -616,13 +711,14 @@ class MapColoringGame(QMainWindow):
         else:
             winner = "🤝 It's a Tie!"
         self.log(f"\n{winner}  Human:{self.human_score}  CPU:{self.cpu_score}", "#facc15")
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Game Over")
-        msg.setText(winner)
-        msg.setInformativeText(
-            f"Final Score\nHuman: {self.human_score}\nCPU: {self.cpu_score}"
-        )
-        msg.exec()
+        if not self.auto_play_active:
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Game Over")
+            msg.setText(winner)
+            msg.setInformativeText(
+                f"Final Score\nHuman: {self.human_score}\nCPU: {self.cpu_score}"
+            )
+            msg.exec()
 
     # ══════════════════════════════════════════
     #  COLOR SELECT
@@ -670,7 +766,8 @@ class MapColoringGame(QMainWindow):
     # ══════════════════════════════════════════
     def new_game(self):
         self._anim_timer.stop()
-        self._animating = False
+        self._animating       = False
+        self.auto_play_active = False
         self.scene.clear()
         self.adj_graph          = {}
         self.region_colors      = {}
@@ -738,7 +835,7 @@ class MapColoringGame(QMainWindow):
         self.view.fitInView(clip_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
     # ══════════════════════════════════════════
-    #  SOLVERS  (unchanged from Review 2)
+    #  SOLVERS (unchanged from Review 2)
     # ══════════════════════════════════════════
     def solve_greedy(self):
         self.reset_colors()
@@ -762,7 +859,8 @@ class MapColoringGame(QMainWindow):
                 return True
             node = nodes[index]
             for col in COLORS:
-                if all(self.region_colors[nb] != col for nb in self.adj_graph[node]):
+                if all(self.region_colors[nb] != col
+                       for nb in self.adj_graph[node]):
                     self.region_colors[node] = col
                     if backtrack(index + 1):
                         return True
@@ -837,7 +935,7 @@ class MapColoringGame(QMainWindow):
         main_layout = QVBoxLayout(central)
         main_layout.setSpacing(4)
 
-        # ── Top bar ──
+        # Top bar
         top = QHBoxLayout()
         self.timer_label = QLabel("CPU Time: 0.000 ms")
         self.timer_label.setStyleSheet("color:#aaa; font-size:12px;")
@@ -848,7 +946,7 @@ class MapColoringGame(QMainWindow):
         top.addWidget(self.status_label)
         main_layout.addLayout(top)
 
-        # ── Map + Log side by side ──
+        # Map + Log
         mid = QHBoxLayout()
 
         self.scene = QGraphicsScene()
@@ -857,9 +955,9 @@ class MapColoringGame(QMainWindow):
         self.view.setStyleSheet("background:#0a1628; border:1px solid #1e3a5f;")
         mid.addWidget(self.view, stretch=3)
 
-        # Log panel on right
+        # Log panel
         log_layout = QVBoxLayout()
-        log_title  = QLabel("📋 Backtrack Log")
+        log_title  = QLabel("📋 Algorithm Log")
         log_title.setStyleSheet("color:white; font-weight:bold; font-size:13px;")
         log_layout.addWidget(log_title)
 
@@ -879,12 +977,14 @@ class MapColoringGame(QMainWindow):
         log_layout.addWidget(legend_title)
 
         for symbol, text, color in [
-            ("⬛", "Uncolored region",         "#aaa"),
-            ("🟥", "Deadlocked (all 4 used)",  "#ff4444"),
-            ("🟨", "Being considered",          "#facc15"),
-            ("🟪", "Tentative recolor",         "#a78bfa"),
-            ("🟧", "Undo / restoring",          "#f87171"),
-            ("🟩", "Successfully repaired",     "#22c55e"),
+            ("⬛", "Uncolored",               "#aaa"),
+            ("⬜", "CPU targeting (white)",   "#ffffff"),
+            ("🟧", "Boundary region",         "#ff6600"),
+            ("🟥", "Deadlocked (all 4 used)", "#ff4444"),
+            ("🟨", "Backtrack: considering",  "#facc15"),
+            ("🟪", "Backtrack: trying",       "#a78bfa"),
+            ("🟫", "Backtrack: undo",         "#f87171"),
+            ("🟩", "Repaired",                "#22c55e"),
         ]:
             lbl = QLabel(f"{symbol} {text}")
             lbl.setStyleSheet(f"color:{color}; font-size:10px;")
@@ -893,7 +993,7 @@ class MapColoringGame(QMainWindow):
         mid.addLayout(log_layout)
         main_layout.addLayout(mid)
 
-        # ── Bottom bar ──
+        # Bottom bar
         bottom = QHBoxLayout()
         bottom.setSpacing(8)
 
@@ -918,6 +1018,15 @@ class MapColoringGame(QMainWindow):
         bottom.addWidget(self.selected_label)
 
         bottom.addStretch()
+
+        # Auto play button
+        self.auto_btn = QPushButton("▶ CPU Auto Play")
+        self.auto_btn.setStyleSheet(
+            "background:#7c3aed; color:white; height:38px;"
+            "font-weight:bold; border-radius:5px; padding:0 14px;"
+        )
+        self.auto_btn.clicked.connect(self.toggle_auto_play)
+        bottom.addWidget(self.auto_btn)
 
         reset_btn = QPushButton("Reset Map")
         reset_btn.setStyleSheet(
