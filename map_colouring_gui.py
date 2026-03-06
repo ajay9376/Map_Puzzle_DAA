@@ -76,6 +76,7 @@ class MapColoringGame(QMainWindow):
         }
 
         if self.selected_color not in neighbor_colors:
+
             self.apply_color(rid, self.selected_color, player="HUMAN")
             self.human_score += 1
 
@@ -83,7 +84,9 @@ class MapColoringGame(QMainWindow):
             self.human_score -= 1
 
         self.update_score()
+
         QTimer.singleShot(300, self.cpu_move_dc)
+
         self.check_game_complete()
 
     # ---------------- CPU MOVE ----------------
@@ -91,20 +94,26 @@ class MapColoringGame(QMainWindow):
     def cpu_move_dc(self):
 
         start = time.perf_counter()
+
         uncolored = [rid for rid, c in self.region_colors.items() if c is None]
 
         if not uncolored:
             return
+
         target = self.dc_select(uncolored)
 
         if target is not None:
+
             if not self.greedy_color(target):
+
                 visited = set()
                 self.resolve_deadlock(target, visited, depth=0)
 
         runtime = (time.perf_counter() - start) * 1000
         self.timer_label.setText(f"CPU Time: {runtime:.3f} ms")
+
         self.update_score()
+
         self.check_game_complete()
 
     # ---------------- DIVIDE & CONQUER ----------------
@@ -115,7 +124,9 @@ class MapColoringGame(QMainWindow):
             return region_list[0]
 
         centroids = [(rid, self.compute_centroid(rid)) for rid in region_list]
+
         x_values = sorted([c[1][0] for c in centroids])
+
         median_x = x_values[len(x_values) // 2]
 
         left = [rid for rid, (x, y) in centroids if x < median_x]
@@ -123,9 +134,11 @@ class MapColoringGame(QMainWindow):
 
         if not left:
             left = right[:1]
+
         return self.dc_select(left)
 
     def compute_centroid(self, rid):
+
         polygon = self.region_items[rid].polygon()
 
         x = sum(p.x() for p in polygon) / len(polygon)
@@ -146,6 +159,7 @@ class MapColoringGame(QMainWindow):
         for col in COLORS:
 
             if col not in neighbor_colors:
+
                 self.apply_color(rid, col, player="CPU")
                 return True
 
@@ -159,6 +173,7 @@ class MapColoringGame(QMainWindow):
             return False
 
         visited.add(rid)
+
         neighbors = sorted(
             self.adj_graph[rid],
             key=lambda x: len(self.adj_graph[x])
@@ -170,9 +185,11 @@ class MapColoringGame(QMainWindow):
                 continue
 
             alt_colors = self.get_alternative_colors(nb, exclude=rid)
+
             if alt_colors:
 
                 new_color = alt_colors[0]
+
                 self.region_colors[nb] = new_color
                 self.region_items[nb].setBrush(QBrush(QColor(new_color)))
 
@@ -202,15 +219,19 @@ class MapColoringGame(QMainWindow):
     def apply_color(self, rid, color, player="CPU"):
 
         self.region_colors[rid] = color
+
         item = self.region_items[rid]
+
         item.setBrush(QBrush(QColor(color)))
         item.setPen(QPen(QColor(color).lighter(150), 1))
+
         if player == "CPU":
             self.cpu_score += 1
 
     # ---------------- SCORE ----------------
 
     def update_score(self):
+
         self.score_label.setText(
             f"Human: {self.human_score} | CPU: {self.cpu_score}"
         )
@@ -257,32 +278,42 @@ class MapColoringGame(QMainWindow):
     # ---------------- D&C VISUALIZATION ----------------
 
     def prepare_dc_steps(self):
+
         nodes = list(self.region_items.keys())
         self.dc_steps = []
 
         def collect(node_list):
+
             if len(node_list) <= 1:
                 return
 
             centroids = [(rid, self.compute_centroid(rid)) for rid in node_list]
+
             xs = sorted([c[1][0] for c in centroids])
             median_x = xs[len(xs)//2]
+
             self.dc_steps.append(median_x)
 
             left = [rid for rid,(x,y) in centroids if x < median_x]
             right = [rid for rid,(x,y) in centroids if x >= median_x]
+
             collect(left)
             collect(right)
 
         collect(nodes)
 
     def show_next_dc_step(self):
+
         if self.current_step >= len(self.dc_steps):
             return
+
         x = self.dc_steps[self.current_step]
+
         line = QGraphicsLineItem(x, 0, x, 600)
         line.setPen(QPen(QColor("yellow"), 3, Qt.PenStyle.DashLine))
+
         self.scene.addItem(line)
+
         self.current_step += 1
 
     # ---------------- MAP GENERATION ----------------
@@ -290,9 +321,11 @@ class MapColoringGame(QMainWindow):
     def new_game(self):
 
         self.scene.clear()
+
         self.adj_graph = {}
         self.region_colors = {}
         self.region_items = {}
+
         width, height = 800, 600
 
         points = [
@@ -309,22 +342,29 @@ class MapColoringGame(QMainWindow):
         ])
 
         vor = Voronoi(points)
+
         clip_rect = QRectF(0, 0, width, height)
+
         rid = 0
 
         for region in vor.regions:
+
             if not region or -1 in region:
                 continue
+
             poly_points = [
                 QPointF(vor.vertices[i][0], vor.vertices[i][1])
                 for i in region
             ]
 
             poly = QPolygonF(poly_points)
+
             item = RegionItem(poly, rid, self)
 
             if clip_rect.intersects(item.boundingRect()):
+
                 self.scene.addItem(item)
+
                 self.region_items[rid] = item
                 self.region_colors[rid] = None
                 self.adj_graph[rid] = set()
@@ -339,13 +379,18 @@ class MapColoringGame(QMainWindow):
                 rid += 1
 
         for id1, item1 in self.region_items.items():
+
             for id2, item2 in self.region_items.items():
+
                 if id1 >= id2:
                     continue
+
                 p1 = set((round(v.x(), 0), round(v.y(), 0))
                          for v in item1.polygon())
+
                 p2 = set((round(v.x(), 0), round(v.y(), 0))
                          for v in item2.polygon())
+
                 if len(p1.intersection(p2)) >= 2:
 
                     self.adj_graph[id1].add(id2)
@@ -362,7 +407,9 @@ class MapColoringGame(QMainWindow):
     def solve_greedy(self):
 
         self.reset_colors()
+
         for node in self.region_items:
+
             neighbor_colors = {
                 self.region_colors[nb]
                 for nb in self.adj_graph[node]
@@ -377,46 +424,68 @@ class MapColoringGame(QMainWindow):
     def solve_backtracking(self):
 
         self.reset_colors()
+
         nodes = list(self.region_items.keys())
 
         def backtrack(index):
+
             if index == len(nodes):
                 return True
+
             node = nodes[index]
+
             for col in COLORS:
+
                 if all(self.region_colors[nb] != col for nb in self.adj_graph[node]):
+
                     self.region_colors[node] = col
+
                     if backtrack(index + 1):
                         return True
+
                     self.region_colors[node] = None
+
             return False
+
         if backtrack(0):
+
             for n, c in self.region_colors.items():
                 self.apply_color(n, c)
 
     def solve_divide_and_conquer(self):
+
         self.reset_colors()
+
         nodes = list(self.region_items.keys())
+
         def dc_solve(node_list):
+
             if not node_list:
                 return
+
             if len(node_list) == 1:
+
                 n = node_list[0]
+
                 used = {
                     self.region_colors[nb]
                     for nb in self.adj_graph[n]
                     if self.region_colors[nb] is not None
                 }
+
                 for c in COLORS:
                     if c not in used:
                         self.region_colors[n] = c
                         break
+
                 return
 
             node_list.sort(
                 key=lambda n: self.region_items[n].boundingRect().center().x()
             )
+
             mid = len(node_list) // 2
+
             dc_solve(node_list[:mid])
             dc_solve(node_list[mid:])
 
@@ -431,8 +500,10 @@ class MapColoringGame(QMainWindow):
     def create_menu(self):
 
         menubar = self.menuBar()
+
         map_menu = menubar.addMenu("Map")
         map_menu.addAction("Generate New Map", self.new_game)
+
         comp_menu = menubar.addMenu("Complexity")
 
         for label, count in [("Easy (15)", 15), ("Medium (30)", 30), ("Hard (60)", 60)]:
@@ -452,38 +523,61 @@ class MapColoringGame(QMainWindow):
     # ---------------- UI ----------------
 
     def init_ui(self):
+
         central = QWidget()
         self.setCentralWidget(central)
+
         layout = QVBoxLayout(central)
+
         top_layout = QHBoxLayout()
+
         self.timer_label = QLabel("CPU Time: 0 ms")
         top_layout.addWidget(self.timer_label)
+
         layout.addLayout(top_layout)
+
         self.scene = QGraphicsScene()
         self.view = ZoomableGraphicsView(self.scene)
+
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
+
         layout.addWidget(self.view)
+
         bottom_layout = QHBoxLayout()
+
         self.score_label = QLabel("Human: 0 | CPU: 0")
         bottom_layout.addWidget(self.score_label)
 
         for i, c in enumerate(COLORS):
+
             btn = QPushButton(COLOR_NAMES[i])
             btn.setStyleSheet(f"background:{c}; height:40px")
+
             btn.clicked.connect(
                 lambda _, col=c: self.select_color(col)
             )
+
             bottom_layout.addWidget(btn)
+
         reset_btn = QPushButton("Reset Map")
         reset_btn.clicked.connect(self.reset_colors)
+
         bottom_layout.addWidget(reset_btn)
+
         step_btn = QPushButton("Next D&C Step")
         step_btn.clicked.connect(self.show_next_dc_step)
+
         bottom_layout.addWidget(step_btn)
+
         layout.addLayout(bottom_layout)
 
+
 if __name__ == "__main__":
+
     app = QApplication(sys.argv)
+
     window = MapColoringGame()
+
     window.show()
+
     sys.exit(app.exec())
